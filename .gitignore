@@ -1,0 +1,22 @@
+# Xcode
+build/
+DerivedData/
+*.xcworkspace
+xcuserdata/
+*.xcuserstate
+
+# XcodeGen (regenerated from project.yml)
+NawNo.xcodeproj
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Generated
+NawNo/Utilities/Generated/
