@@ -6,13 +6,14 @@ struct ChatMessage: Identifiable, Equatable {
     var content: String
     var thinkingContent: String?
     var stats: GenerationStats?
+    var isStreaming: Bool = false
 
     enum Role: Equatable {
         case user, assistant, system
     }
 
     static func == (lhs: ChatMessage, rhs: ChatMessage) -> Bool {
-        lhs.id == rhs.id && lhs.content == rhs.content && lhs.thinkingContent == rhs.thinkingContent
+        lhs.id == rhs.id && lhs.content == rhs.content && lhs.thinkingContent == rhs.thinkingContent && lhs.isStreaming == rhs.isStreaming
     }
 
     var asDict: [String: String] {
@@ -31,6 +32,7 @@ struct ChatView: View {
     @Binding var messages: [ChatMessage]
     @Environment(LLMService.self) private var llm
     @State private var inputText = ""
+    @State private var streamingMessageIndex: Int?
     @FocusState private var inputFocused: Bool
 
     var body: some View {
@@ -43,29 +45,6 @@ struct ChatView: View {
                                 .id(message.id)
                         }
 
-                        if llm.isGenerating && (!llm.currentStreamText.isEmpty || !llm.currentThinkingText.isEmpty) {
-                            let thinkingEnabled = SettingsStorage.settings(for: model).enableThinking
-                            MessageBubble(
-                                message: ChatMessage(
-                                    role: .assistant,
-                                    content: llm.currentStreamText,
-                                    thinkingContent: thinkingEnabled && !llm.currentThinkingText.isEmpty ? llm.currentThinkingText : nil
-                                ),
-                                isStreaming: true
-                            )
-                            .id("streaming")
-                        } else if llm.isGenerating {
-                            HStack(spacing: 6) {
-                                ProgressView()
-                                    .controlSize(.small)
-                                Text("Thinking...")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 16)
-                            .id("thinking")
-                        }
                         Color.clear
                             .frame(height: 8)
                             .id("bottom")
@@ -80,10 +59,17 @@ struct ChatView: View {
                 .onChange(of: llm.isGenerating) { _, _ in
                     scrollToBottom(proxy)
                 }
-                .onChange(of: llm.currentStreamText) { _, _ in
+                .onChange(of: llm.currentStreamText) { _, newValue in
+                    if let idx = streamingMessageIndex, idx < messages.count, llm.isGenerating {
+                        messages[idx].content = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    }
                     scrollToBottom(proxy)
                 }
-                .onChange(of: llm.currentThinkingText) { _, _ in
+                .onChange(of: llm.currentThinkingText) { _, newValue in
+                    if let idx = streamingMessageIndex, idx < messages.count, llm.isGenerating {
+                        let thinkingEnabled = SettingsStorage.settings(for: model).enableThinking
+                        messages[idx].thinkingContent = (thinkingEnabled && !newValue.isEmpty) ? newValue : nil
+                    }
                     scrollToBottom(proxy)
                 }
             }
@@ -143,26 +129,34 @@ struct ChatView: View {
 
         let settings = SettingsStorage.settings(for: model)
 
-        // Build messages array for MLX
+        // Build messages array for MLX (exclude streaming placeholder)
         var mlxMessages: [[String: String]] = []
         if !settings.systemPrompt.isEmpty {
             mlxMessages.append(["role": "system", "content": settings.systemPrompt])
         }
-        for msg in messages {
+        for msg in messages where !msg.isStreaming {
             mlxMessages.append(msg.asDict)
         }
 
+        // Insert placeholder assistant message
+        let placeholder = ChatMessage(role: .assistant, content: "", isStreaming: true)
+        messages.append(placeholder)
+        streamingMessageIndex = messages.count - 1
+
         Task {
             let result = await llm.generate(messages: mlxMessages, settings: settings)
+            guard let idx = streamingMessageIndex, idx < messages.count else { return }
+
             if !result.response.isEmpty || result.thinking != nil {
                 let thinking = settings.enableThinking ? result.thinking?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
-                messages.append(ChatMessage(
-                    role: .assistant,
-                    content: result.response.trimmingCharacters(in: .whitespacesAndNewlines),
-                    thinkingContent: thinking,
-                    stats: result.stats
-                ))
+                messages[idx].content = result.response.trimmingCharacters(in: .whitespacesAndNewlines)
+                messages[idx].thinkingContent = thinking
+                messages[idx].stats = result.stats
+                messages[idx].isStreaming = false
+            } else {
+                messages.remove(at: idx)
             }
+            streamingMessageIndex = nil
         }
     }
 

@@ -139,10 +139,13 @@ final class ChatStore {
     func updateChat(id: UUID, messages: [ChatMessage]) {
         guard let index = chats.firstIndex(where: { $0.id == id }) else { return }
 
-        // Only update timestamp when message count actually changes (new message sent)
-        let hadNewMessages = messages.count != chats[index].messages.count
+        // Filter out in-progress streaming messages
+        let finalMessages = messages.filter { !$0.isStreaming }
 
-        chats[index].messages = messages.map { msg in
+        // Only update timestamp when message count actually changes (new message sent)
+        let hadNewMessages = finalMessages.count != chats[index].messages.count
+
+        chats[index].messages = finalMessages.map { msg in
             SavedMessage(
                 id: msg.id,
                 role: msg.role == .user ? "user" : msg.role == .assistant ? "assistant" : "system",

@@ -2,8 +2,9 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
-    var isStreaming = false
     @State private var thinkingExpanded = false
+
+    private var isStreaming: Bool { message.isStreaming }
 
     private var parsed: (thinking: String?, content: String) {
         // Use thinkingContent if already parsed upstream
@@ -57,19 +58,20 @@ struct MessageBubble: View {
                     .background(backgroundColor, in: RoundedRectangle(cornerRadius: 12))
                     .foregroundStyle(.white)
             } else {
-                if let thinking = parts.thinking {
-                    ThinkingDisclosure(
-                        content: thinking,
-                        isExpanded: isStreaming && parts.content.isEmpty ? .constant(true) : $thinkingExpanded,
-                        isStreaming: isStreaming
-                    )
-                    .padding(.horizontal, 12)
-                }
+                VStack(alignment: .leading, spacing: 12) {
+                    if parts.thinking != nil || isStreaming {
+                        ThinkingDisclosure(
+                            content: parts.thinking ?? "",
+                            isExpanded: $thinkingExpanded,
+                            isStreaming: isStreaming
+                        )
+                    }
 
-                if !parts.content.isEmpty {
-                    MarkdownTextView(markdown: parts.content)
-                        .padding(.horizontal, 12)
+                    if !parts.content.isEmpty {
+                        MarkdownTextView(markdown: parts.content)
+                    }
                 }
+                .padding(.horizontal, 12)
             }
 
             if let stats = message.stats {
@@ -119,14 +121,11 @@ struct ThinkingDisclosure: View {
                         .rotationEffect(.degrees(isExpanded ? 90 : 0))
                         .animation(.easeInOut(duration: 0.2), value: isExpanded)
 
-                    if isStreaming && isExpanded {
-                        HStack(spacing: 4) {
-                            Text("Thinking")
-                            ProgressView()
-                                .controlSize(.mini)
-                        }
-                    } else {
-                        Text("Thought")
+                    Text(isStreaming ? "Thinking" : "Thought")
+                    if isStreaming {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .transition(.opacity)
                     }
                 }
                 .font(.caption)
