@@ -315,8 +315,8 @@ struct ContentView: View {
         Task {
             do {
                 let service = PythonMLXService()
-                try await service.installMLXLM()
-                pythonInstallResult = "mlx-lm installed successfully. You can now load models with the Python backend."
+                try await service.ensureFullSetup()
+                pythonInstallResult = "Python environment ready. You can now load models with the Python backend."
             } catch {
                 pythonInstallResult = "Install failed: \(error.localizedDescription)"
             }

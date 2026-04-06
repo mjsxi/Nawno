@@ -59,17 +59,10 @@ struct ChatView: View {
                 .onChange(of: llm.isGenerating) { _, _ in
                     scrollToBottom(proxy)
                 }
-                .onChange(of: llm.currentStreamText) { _, newValue in
-                    if let idx = streamingMessageIndex, idx < messages.count, llm.isGenerating {
-                        messages[idx].content = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    }
+                .onChange(of: llm.currentStreamText) { _, _ in
                     scrollToBottom(proxy)
                 }
-                .onChange(of: llm.currentThinkingText) { _, newValue in
-                    if let idx = streamingMessageIndex, idx < messages.count, llm.isGenerating {
-                        let thinkingEnabled = SettingsStorage.settings(for: model).enableThinking
-                        messages[idx].thinkingContent = (thinkingEnabled && !newValue.isEmpty) ? newValue : nil
-                    }
+                .onChange(of: llm.currentThinkingText) { _, _ in
                     scrollToBottom(proxy)
                 }
             }
@@ -116,7 +109,7 @@ struct ChatView: View {
     }
 
     private var canSend: Bool {
-        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && llm.isModelLoaded && !llm.isGenerating
+        !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && llm.isModelLoaded && !llm.isGenerating && streamingMessageIndex == nil
     }
 
     private func sendMessage() {
@@ -154,6 +147,7 @@ struct ChatView: View {
                 messages[idx].stats = result.stats
                 messages[idx].isStreaming = false
             } else {
+                // Empty result (cancelled or error) — remove placeholder
                 messages.remove(at: idx)
             }
             streamingMessageIndex = nil

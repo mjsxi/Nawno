@@ -2,11 +2,19 @@ import SwiftUI
 
 struct MessageBubble: View {
     let message: ChatMessage
+    @Environment(LLMService.self) private var llm
     @State private var thinkingExpanded = false
 
     private var isStreaming: Bool { message.isStreaming }
 
+    /// When streaming, read directly from LLMService for reliable @Observable updates.
+    /// When finalized, read from the message's stored content.
     private var parsed: (thinking: String?, content: String) {
+        if isStreaming {
+            let streamThinking = llm.currentThinkingText.trimmingCharacters(in: .whitespacesAndNewlines)
+            let streamContent = llm.currentStreamText.trimmingCharacters(in: .whitespacesAndNewlines)
+            return (streamThinking.isEmpty ? nil : streamThinking, streamContent)
+        }
         // Use thinkingContent if already parsed upstream
         if let thinking = message.thinkingContent, !thinking.isEmpty {
             return (thinking, message.content)

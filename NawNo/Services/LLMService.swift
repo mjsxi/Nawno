@@ -24,53 +24,31 @@ struct GenerationResult {
 }
 
 /// Incrementally parses `<think>...</think>` blocks from a streaming text buffer.
-/// Handles the case where the tokenizer strips `<think>` as a special token —
-/// if `</think>` appears without a prior `<think>`, everything before it is thinking.
+/// Starts in response mode. If `<think>` is seen, switches to thinking mode.
+/// If `</think>` is seen without a prior `<think>` (tokenizer stripped it),
+/// retroactively moves accumulated response to thinking.
 struct ThinkingParser {
     private(set) var thinking = ""
     private(set) var response = ""
-    private var inThinking = true  // assume thinking until we see </think> or know otherwise
-    private var sawThinkEnd = false
-    private var sawThinkStart = false
+    private var inThinking: Bool
+    private var sawThinkTag = false
     private var buffer = ""
+
+    init(startInThinking: Bool = false) {
+        self.inThinking = startInThinking
+    }
 
     mutating func append(_ text: String) {
         buffer += text
 
         while !buffer.isEmpty {
             if inThinking {
+                // In thinking mode — look for </think>
                 if let endRange = buffer.range(of: "</think>") {
                     thinking += buffer[buffer.startIndex..<endRange.lowerBound]
                     buffer = String(buffer[endRange.upperBound...])
                     inThinking = false
-                    sawThinkEnd = true
-                } else if !sawThinkStart && !sawThinkEnd {
-                    // Haven't seen <think> or </think> yet — check for <think> start tag
-                    if let startRange = buffer.range(of: "<think>") {
-                        // Had some text before <think>, move it to response
-                        let before = String(buffer[buffer.startIndex..<startRange.lowerBound])
-                        if !before.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            response += before
-                            inThinking = true
-                        }
-                        buffer = String(buffer[startRange.upperBound...])
-                        sawThinkStart = true
-                        continue
-                    }
-                    // Check for partial </think> at end of buffer
-                    let partial = partialSuffix(of: buffer, matching: "</think>")
-                    let partialStart = partialSuffix(of: buffer, matching: "<think>")
-                    let maxPartial = max(partial, partialStart)
-                    if maxPartial > 0 {
-                        thinking += buffer.dropLast(maxPartial)
-                        buffer = String(buffer.suffix(maxPartial))
-                    } else {
-                        thinking += buffer
-                        buffer = ""
-                    }
-                    break
                 } else {
-                    // Already saw <think>, waiting for </think>
                     let partial = partialSuffix(of: buffer, matching: "</think>")
                     if partial > 0 {
                         thinking += buffer.dropLast(partial)
@@ -82,11 +60,55 @@ struct ThinkingParser {
                     break
                 }
             } else {
-                // After </think>, everything is response
-                response += buffer
-                buffer = ""
-                break
+                // In response mode — look for <think> or </think>
+                if let startRange = buffer.range(of: "<think>") {
+                    response += buffer[buffer.startIndex..<startRange.lowerBound]
+                    buffer = String(buffer[startRange.upperBound...])
+                    inThinking = true
+                    sawThinkTag = true
+                } else if !sawThinkTag, let endRange = buffer.range(of: "</think>") {
+                    // </think> without <think> — tokenizer stripped <think>
+                    // Move everything accumulated so far to thinking
+                    thinking = response + String(buffer[buffer.startIndex..<endRange.lowerBound])
+                    response = ""
+                    buffer = String(buffer[endRange.upperBound...])
+                    sawThinkTag = true
+                } else {
+                    let partial = max(
+                        partialSuffix(of: buffer, matching: "<think>"),
+                        partialSuffix(of: buffer, matching: "</think>")
+                    )
+                    if partial > 0 {
+                        response += buffer.dropLast(partial)
+                        buffer = String(buffer.suffix(partial))
+                    } else {
+                        response += buffer
+                        buffer = ""
+                    }
+                    break
+                }
             }
+        }
+    }
+
+    /// Flush any remaining buffer content to the appropriate destination.
+    /// Call after the stream ends to ensure no content is lost.
+    /// If still in thinking mode and </think> was never seen, the model doesn't
+    /// actually use thinking — move everything to response.
+    mutating func flush() {
+        if !buffer.isEmpty {
+            if inThinking {
+                thinking += buffer
+            } else {
+                response += buffer
+            }
+            buffer = ""
+        }
+        // If we're still in thinking mode and never saw </think>,
+        // the model doesn't use thinking — move all to response
+        if inThinking && !sawThinkTag {
+            response = thinking + response
+            thinking = ""
         }
     }
 
@@ -185,19 +207,15 @@ final class LLMService {
         case .python:
             await loadPython(entry)
         case .auto:
-            statusText = "Loading \(entry.displayName) (Swift)..."
-            await loadSwift(entry)
+            statusText = "Loading \(entry.displayName) (Python)..."
+            await loadPython(entry)
             if !isModelLoaded {
-                let swiftError = errorMessage
+                let pythonError = errorMessage
                 errorMessage = nil
-                statusText = "Swift failed, trying Python..."
-                await loadPython(entry)
-                if isModelLoaded {
-                    var updated = settings
-                    updated.backend = .python
-                    SettingsStorage.save(updated, for: entry)
-                } else if errorMessage == nil {
-                    errorMessage = swiftError
+                statusText = "Python failed, trying Swift..."
+                await loadSwift(entry)
+                if !isModelLoaded, errorMessage == nil {
+                    errorMessage = pythonError
                 }
             }
         }
@@ -254,9 +272,17 @@ final class LLMService {
     }
 
     private func loadPython(_ entry: ModelEntry) async {
-        statusText = "Loading \(entry.displayName) (Python)..."
-
         do {
+            // Auto-setup: download Python + install mlx-lm if needed
+            if await !PythonMLXService.isAvailable() {
+                if !PythonMLXService.isStandalonePythonReady && PythonMLXService.findSystemPython() == nil {
+                    statusText = "Downloading Python..."
+                }
+                statusText = "Setting up Python environment..."
+                try await pythonService.ensureFullSetup()
+            }
+
+            statusText = "Loading \(entry.displayName) (Python)..."
             try await pythonService.startServer(modelPath: entry.directoryURL)
             currentModelID = entry.id
             isModelLoaded = true
@@ -358,7 +384,7 @@ final class LLMService {
                         context: context
                     )
 
-                    var parser = ThinkingParser()
+                    var parser = ThinkingParser(startInThinking: settings.enableThinking)
                     var firstTokenTime: Date?
                     let startTime = Date()
                     var completionInfo: GenerateCompletionInfo?
@@ -385,6 +411,8 @@ final class LLMService {
                             break
                         }
                     }
+
+                    parser.flush()
 
                     var genStats: GenerationStats?
                     if let info = completionInfo {
@@ -427,7 +455,7 @@ final class LLMService {
         errorMessage = nil
 
         let task = Task { () -> GenerationResult in
-            var parser = ThinkingParser()
+            var parser = ThinkingParser(startInThinking: settings.enableThinking)
             var stats: GenerationStats?
 
             let startTime = Date()
@@ -471,6 +499,8 @@ final class LLMService {
                     }
                 }
             }
+
+            parser.flush()
 
             let thinking = parser.thinking.isEmpty ? nil : parser.thinking
             return GenerationResult(response: parser.response, thinking: thinking, stats: stats)

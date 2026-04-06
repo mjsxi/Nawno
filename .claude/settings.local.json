@@ -40,7 +40,12 @@
       "Bash(\"$HOME/Library/Application Support/NawNo/python-env/bin/pip\" install --upgrade mlx-lm)",
       "Bash(\"$HOME/Library/Application Support/NawNo/python-env/bin/python3\" -c \"import mlx_lm; print\\(mlx_lm.__version__\\)\")",
       "Bash(xcodebuild -scheme NawNo -configuration Debug build)",
-      "Bash(swift -)"
+      "Bash(swift -)",
+      "Bash(curl -s \"https://api.github.com/repos/indygreg/python-build-standalone/releases?per_page=5\")",
+      "Bash(curl -s \"https://api.github.com/repos/indygreg/python-build-standalone/releases\" -H \"Accept: application/vnd.github+json\")",
+      "Bash(curl -s \"https://api.github.com/repos/indygreg/python-build-standalone/releases/latest\")",
+      "Bash(curl -sL \"https://api.github.com/repos/indygreg/python-build-standalone/releases\")",
+      "Bash(curl -sL \"https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest\")"
     ]
   }
 }

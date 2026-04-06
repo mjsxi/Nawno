@@ -57,9 +57,9 @@ struct ModelSettingsView: View {
     private var backendSection: some View {
         Section("Inference Backend") {
             Picker("Backend", selection: $settings.backend) {
-                Text("Auto (try Swift, fall back to Python)").tag(BackendType.auto)
-                Text("Swift (mlx-swift, native)").tag(BackendType.swift)
+                Text("Auto (try Python, fall back to Swift)").tag(BackendType.auto)
                 Text("Python (mlx-lm server)").tag(BackendType.python)
+                Text("Swift (mlx-swift, native)").tag(BackendType.swift)
             }
             .pickerStyle(.radioGroup)
 

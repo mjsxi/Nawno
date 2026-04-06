@@ -39,10 +39,30 @@ final class PythonMLXService {
     private static var cachedVersion: String?
     nonisolated(unsafe) private static var cachedPythonPath: String?
 
+    /// App data root
+    nonisolated static var appDataRoot: URL {
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        return appSupport.appendingPathComponent("NawNo")
+    }
+
+    /// Standalone Python install location
+    nonisolated static var standalonePythonRoot: URL {
+        appDataRoot.appendingPathComponent("python")
+    }
+
+    /// Standalone Python executable
+    nonisolated static var standalonePython: URL {
+        standalonePythonRoot.appendingPathComponent("bin/python3")
+    }
+
+    /// Whether standalone Python has been downloaded
+    nonisolated static var isStandalonePythonReady: Bool {
+        FileManager.default.isExecutableFile(atPath: standalonePython.path)
+    }
+
     /// The venv lives alongside Models and Chats in the app's data directory
     nonisolated static var venvURL: URL {
-        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        return appSupport.appendingPathComponent("NawNo/python-env")
+        appDataRoot.appendingPathComponent("python-env")
     }
 
     /// Python executable inside the venv
@@ -60,11 +80,18 @@ final class PythonMLXService {
         FileManager.default.isExecutableFile(atPath: venvPython.path)
     }
 
-    // MARK: - Find System Python
+    // MARK: - Find Python
 
-    /// Find a usable system Python 3 for creating the venv
+    /// Find a usable Python 3 — checks standalone install first, then system paths
     nonisolated static func findSystemPython() -> String? {
         if let cached = cachedPythonPath { return cached }
+
+        // Check standalone Python first
+        let standalonePath = standalonePython.path
+        if FileManager.default.isExecutableFile(atPath: standalonePath) {
+            cachedPythonPath = standalonePath
+            return standalonePath
+        }
 
         let candidates = [
             "/opt/homebrew/bin/python3",
@@ -83,20 +110,90 @@ final class PythonMLXService {
         return nil
     }
 
+    // MARK: - Standalone Python Download
+
+    /// Download and extract a standalone Python build from python-build-standalone.
+    /// ~18MB download, ~100MB on disk.
+    static func downloadStandalonePython() async throws {
+        let fm = FileManager.default
+
+        // Find the download URL via GitHub API
+        let apiURL = URL(string: "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest")!
+        let (apiData, _) = try await URLSession.shared.data(from: apiURL)
+
+        guard let release = try? JSONSerialization.jsonObject(with: apiData) as? [String: Any],
+              let assets = release["assets"] as? [[String: Any]] else {
+            throw PythonMLXError.serverStartFailed("Failed to fetch Python release info")
+        }
+
+        // Find the aarch64 macOS install_only build for Python 3.12
+        guard let asset = assets.first(where: { asset in
+            let name = asset["name"] as? String ?? ""
+            return name.contains("aarch64-apple-darwin-install_only") && name.contains("3.12")
+        }), let downloadURLString = asset["browser_download_url"] as? String,
+              let downloadURL = URL(string: downloadURLString) else {
+            throw PythonMLXError.serverStartFailed("Could not find compatible Python build")
+        }
+
+        // Download the tarball
+        let (tarPath, _) = try await URLSession.shared.download(from: downloadURL)
+
+        // Clean up any existing install
+        if fm.fileExists(atPath: standalonePythonRoot.path) {
+            try fm.removeItem(at: standalonePythonRoot)
+        }
+
+        // Extract — the tar.gz contains a `python/` directory
+        let extractDir = appDataRoot
+        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
+
+        try await runProcess(
+            executable: "/usr/bin/tar",
+            arguments: ["xzf", tarPath.path, "-C", extractDir.path]
+        )
+
+        // Clean up downloaded file
+        try? fm.removeItem(at: tarPath)
+
+        // Verify
+        guard isStandalonePythonReady else {
+            throw PythonMLXError.serverStartFailed("Python extraction failed")
+        }
+
+        cachedPythonPath = nil // Clear cache so findSystemPython picks up the new install
+    }
+
     // MARK: - Venv Management
 
-    /// Create the venv if it doesn't exist
+    /// Create the venv if it doesn't exist. Downloads Python if none is available.
     static func ensureVenv() async throws {
         if isVenvReady { return }
 
-        guard let systemPython = findSystemPython() else {
+        if findSystemPython() == nil {
+            try await downloadStandalonePython()
+        }
+
+        guard let python = findSystemPython() else {
             throw PythonMLXError.noPython
         }
 
         try await runProcess(
-            executable: systemPython,
+            executable: python,
             arguments: ["-m", "venv", venvURL.path]
         )
+    }
+
+    /// Full setup: download Python if needed, create venv, install mlx-lm
+    func ensureFullSetup() async throws {
+        try await PythonMLXService.ensureVenv()
+
+        if await !PythonMLXService.isAvailable() {
+            try await PythonMLXService.runProcess(
+                executable: PythonMLXService.venvPip.path,
+                arguments: ["install", "--upgrade", "mlx-lm"]
+            )
+            PythonMLXService.clearCache()
+        }
     }
 
     /// Install or upgrade mlx-lm in the venv
@@ -183,6 +280,9 @@ final class PythonMLXService {
             }
 
             if await checkServerHealth() {
+                // Server is up but model may still be loading into memory.
+                // Send a tiny warmup request to force model load before reporting ready.
+                await warmupModel()
                 isServerReady = true
                 return
             }
@@ -250,6 +350,7 @@ final class PythonMLXService {
 
                     var promptTokens = 0
                     var completionTokens = 0
+                    var inReasoning = false
 
                     for try await line in bytes.lines {
                         if Task.isCancelled { break }
@@ -258,6 +359,10 @@ final class PythonMLXService {
                         let payload = String(line.dropFirst(6))
 
                         if payload == "[DONE]" {
+                            if inReasoning {
+                                continuation.yield(.chunk("</think>"))
+                                inReasoning = false
+                            }
                             continuation.yield(.done(promptTokens: promptTokens, completionTokens: completionTokens))
                             break
                         }
@@ -267,10 +372,22 @@ final class PythonMLXService {
 
                         if let choices = json["choices"] as? [[String: Any]],
                            let firstChoice = choices.first,
-                           let delta = firstChoice["delta"] as? [String: Any],
-                           let content = delta["content"] as? String,
-                           !content.isEmpty {
-                            continuation.yield(.chunk(content))
+                           let delta = firstChoice["delta"] as? [String: Any] {
+                            // Some servers send thinking in a separate reasoning_content field
+                            if let reasoning = delta["reasoning_content"] as? String, !reasoning.isEmpty {
+                                if !inReasoning {
+                                    continuation.yield(.chunk("<think>"))
+                                    inReasoning = true
+                                }
+                                continuation.yield(.chunk(reasoning))
+                            }
+                            if let content = delta["content"] as? String, !content.isEmpty {
+                                if inReasoning {
+                                    continuation.yield(.chunk("</think>"))
+                                    inReasoning = false
+                                }
+                                continuation.yield(.chunk(content))
+                            }
                         }
 
                         if let usage = json["usage"] as? [String: Any] {
@@ -288,6 +405,24 @@ final class PythonMLXService {
     }
 
     // MARK: - Private Helpers
+
+    /// Send a minimal completion request to force the model to fully load.
+    private nonisolated func warmupModel() async {
+        let port = await self.port
+        let url = URL(string: "http://localhost:\(port)/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 120
+
+        let body: [String: Any] = [
+            "messages": [["role": "user", "content": "hi"]],
+            "max_tokens": 1
+        ]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        _ = try? await URLSession.shared.data(for: request)
+    }
 
     private nonisolated func checkServerHealth() async -> Bool {
         let port = await self.port
