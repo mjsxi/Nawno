@@ -2,8 +2,9 @@ import Foundation
 
 enum BackendType: String, Codable, CaseIterable, Equatable {
     case auto
-    case swift
     case python
+    case pythonVLM = "python_vlm"
+    case swift
 }
 
 struct ModelSettings: Codable, Equatable {

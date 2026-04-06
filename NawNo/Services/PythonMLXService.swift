@@ -112,12 +112,10 @@ final class PythonMLXService {
 
     // MARK: - Standalone Python Download
 
-    /// Download and extract a standalone Python build from python-build-standalone.
-    /// ~18MB download, ~100MB on disk.
+    /// Download and extract a standalone Python from python-build-standalone.
     static func downloadStandalonePython() async throws {
         let fm = FileManager.default
 
-        // Find the download URL via GitHub API
         let apiURL = URL(string: "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest")!
         let (apiData, _) = try await URLSession.shared.data(from: apiURL)
 
@@ -126,46 +124,36 @@ final class PythonMLXService {
             throw PythonMLXError.serverStartFailed("Failed to fetch Python release info")
         }
 
-        // Find the aarch64 macOS install_only build for Python 3.12
         guard let asset = assets.first(where: { asset in
             let name = asset["name"] as? String ?? ""
             return name.contains("aarch64-apple-darwin-install_only") && name.contains("3.12")
-        }), let downloadURLString = asset["browser_download_url"] as? String,
-              let downloadURL = URL(string: downloadURLString) else {
+        }), let urlString = asset["browser_download_url"] as? String,
+              let downloadURL = URL(string: urlString) else {
             throw PythonMLXError.serverStartFailed("Could not find compatible Python build")
         }
 
-        // Download the tarball
         let (tarPath, _) = try await URLSession.shared.download(from: downloadURL)
 
-        // Clean up any existing install
         if fm.fileExists(atPath: standalonePythonRoot.path) {
             try fm.removeItem(at: standalonePythonRoot)
         }
-
-        // Extract — the tar.gz contains a `python/` directory
-        let extractDir = appDataRoot
-        try fm.createDirectory(at: extractDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: appDataRoot, withIntermediateDirectories: true)
 
         try await runProcess(
             executable: "/usr/bin/tar",
-            arguments: ["xzf", tarPath.path, "-C", extractDir.path]
+            arguments: ["xzf", tarPath.path, "-C", appDataRoot.path]
         )
-
-        // Clean up downloaded file
         try? fm.removeItem(at: tarPath)
 
-        // Verify
         guard isStandalonePythonReady else {
             throw PythonMLXError.serverStartFailed("Python extraction failed")
         }
-
-        cachedPythonPath = nil // Clear cache so findSystemPython picks up the new install
+        cachedPythonPath = nil
     }
 
     // MARK: - Venv Management
 
-    /// Create the venv if it doesn't exist. Downloads Python if none is available.
+    /// Create the venv if it doesn't exist. Downloads Python if none available.
     static func ensureVenv() async throws {
         if isVenvReady { return }
 
@@ -183,26 +171,36 @@ final class PythonMLXService {
         )
     }
 
-    /// Full setup: download Python if needed, create venv, install mlx-lm
+    /// Full setup: Python + venv + mlx-lm + mlx-vlm. Single entry point.
     func ensureFullSetup() async throws {
         try await PythonMLXService.ensureVenv()
 
         if await !PythonMLXService.isAvailable() {
             try await PythonMLXService.runProcess(
                 executable: PythonMLXService.venvPip.path,
-                arguments: ["install", "--upgrade", "mlx-lm"]
+                arguments: ["install", "--upgrade", "mlx-lm", "mlx-vlm"]
             )
             PythonMLXService.clearCache()
         }
     }
 
-    /// Install or upgrade mlx-lm in the venv
+    /// Install or upgrade a specific package
+    static func installPackage(_ name: String) async throws {
+        try await ensureVenv()
+        try await runProcess(
+            executable: venvPip.path,
+            arguments: ["install", "--upgrade", name]
+        )
+        clearCache()
+    }
+
+    /// Install or upgrade all packages
     func installMLXLM() async throws {
         try await PythonMLXService.ensureVenv()
 
         try await PythonMLXService.runProcess(
             executable: PythonMLXService.venvPip.path,
-            arguments: ["install", "--upgrade", "mlx-lm"]
+            arguments: ["install", "--upgrade", "mlx-lm", "mlx-vlm"]
         )
 
         PythonMLXService.clearCache()
@@ -226,6 +224,11 @@ final class PythonMLXService {
         return result
     }
 
+    static func isVLMAvailable() async -> Bool {
+        guard isVenvReady else { return false }
+        return await runVenvPython(args: ["-c", "import mlx_vlm"])
+    }
+
     static func installedVersion() async -> String? {
         if let cached = cachedVersion { return cached }
         guard isVenvReady else { return nil }
@@ -241,7 +244,7 @@ final class PythonMLXService {
 
     // MARK: - Server Lifecycle
 
-    func startServer(modelPath: URL) async throws {
+    func startServer(modelPath: URL, useVLM: Bool = false) async throws {
         stopServer()
 
         guard await PythonMLXService.isAvailable() else {
@@ -250,9 +253,10 @@ final class PythonMLXService {
 
         port = Int.random(in: 49152...65535)
 
+        let serverModule = useVLM ? "mlx_vlm.server" : "mlx_lm.server"
         let proc = Process()
         proc.executableURL = PythonMLXService.venvPython
-        proc.arguments = ["-m", "mlx_lm.server", "--model", modelPath.path, "--port", String(port)]
+        proc.arguments = ["-m", serverModule, "--model", modelPath.path, "--port", String(port)]
 
         let stdoutPipe = Pipe()
         let stderrPipe = Pipe()

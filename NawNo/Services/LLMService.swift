@@ -175,6 +175,12 @@ final class LLMService {
     var currentThinkingText = ""
     private(set) var activeBackend: BackendType?
 
+    /// Set to true when Python environment needs setup before a model can load
+    var needsSetup = false
+    var isSettingUp = false
+    var setupStatus = ""
+    private var pendingModelEntry: ModelEntry?
+
     private var modelContainer: ModelContainer?
     private(set) var currentModelID: UUID?
     private var generateTask: Task<GenerationResult, Never>?
@@ -204,11 +210,11 @@ final class LLMService {
         switch settings.backend {
         case .swift:
             await loadSwift(entry)
-        case .python:
-            await loadPython(entry)
+        case .python, .pythonVLM:
+            await loadPython(entry, settings: settings)
         case .auto:
             statusText = "Loading \(entry.displayName) (Python)..."
-            await loadPython(entry)
+            await loadPython(entry, settings: settings)
             if !isModelLoaded {
                 let pythonError = errorMessage
                 errorMessage = nil
@@ -271,26 +277,49 @@ final class LLMService {
         return nil
     }
 
-    private func loadPython(_ entry: ModelEntry) async {
+    private func loadPython(_ entry: ModelEntry, settings: ModelSettings) async {
         do {
-            // Auto-setup: download Python + install mlx-lm if needed
             if await !PythonMLXService.isAvailable() {
-                if !PythonMLXService.isStandalonePythonReady && PythonMLXService.findSystemPython() == nil {
-                    statusText = "Downloading Python..."
-                }
-                statusText = "Setting up Python environment..."
-                try await pythonService.ensureFullSetup()
+                pendingModelEntry = entry
+                needsSetup = true
+                isLoading = false
+                return
             }
 
             statusText = "Loading \(entry.displayName) (Python)..."
-            try await pythonService.startServer(modelPath: entry.directoryURL)
+            try await pythonService.startServer(modelPath: entry.directoryURL, useVLM: settings.backend == .pythonVLM)
             currentModelID = entry.id
             isModelLoaded = true
-            activeBackend = .python
-            statusText = "Ready (Python)"
+            activeBackend = settings.backend == .pythonVLM ? .pythonVLM : .python
+            statusText = settings.backend == .pythonVLM ? "Ready (Python VLM)" : "Ready (Python)"
         } catch {
             errorMessage = error.localizedDescription
             statusText = "Python load failed"
+        }
+    }
+
+    /// Called when user clicks Install in the setup dialog
+    func performSetup() async {
+        isSettingUp = true
+        needsSetup = false
+        setupStatus = "Downloading Python..."
+
+        do {
+            setupStatus = "Setting up environment..."
+            try await pythonService.ensureFullSetup()
+
+            setupStatus = ""
+            isSettingUp = false
+
+            // Retry loading the model that triggered setup
+            if let entry = pendingModelEntry {
+                pendingModelEntry = nil
+                await loadModel(entry)
+            }
+        } catch {
+            setupStatus = ""
+            isSettingUp = false
+            errorMessage = "Setup failed: \(error.localizedDescription)"
         }
     }
 
@@ -318,7 +347,7 @@ final class LLMService {
         switch activeBackend {
         case .swift:
             return await generateSwift(messages: messages, settings: settings)
-        case .python:
+        case .python, .pythonVLM:
             let sanitized = Self.sanitizeMessages(messages)
             return await generatePython(messages: sanitized, settings: settings)
         default:

@@ -91,12 +91,21 @@ struct ContentView: View {
         } message: {
             Text(pythonInstallResult ?? "")
         }
+        .sheet(isPresented: Binding(
+            get: { llm.needsSetup },
+            set: { llm.needsSetup = $0 }
+        )) {
+            SetupSheet()
+        }
+        .overlay {
+            SetupProgressOverlay()
+        }
         .overlay {
             if isInstallingPython {
                 VStack(spacing: 12) {
                     ProgressView()
                         .controlSize(.large)
-                    Text("Installing mlx-lm...")
+                    Text("Installing packages...")
                         .font(.headline)
                     Text("This may take a minute")
                         .font(.caption)

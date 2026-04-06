@@ -45,7 +45,12 @@
       "Bash(curl -s \"https://api.github.com/repos/indygreg/python-build-standalone/releases\" -H \"Accept: application/vnd.github+json\")",
       "Bash(curl -s \"https://api.github.com/repos/indygreg/python-build-standalone/releases/latest\")",
       "Bash(curl -sL \"https://api.github.com/repos/indygreg/python-build-standalone/releases\")",
-      "Bash(curl -sL \"https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest\")"
+      "Bash(curl -sL \"https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest\")",
+      "Bash(APP=/Users/matt/Library/Developer/Xcode/DerivedData/NawNo-bbgvmrwztthkhnbdzcawnghifvli/Build/Products/Debug/NawNo.app echo '=== Python tarball ===' ls -lh $APP/Contents/Resources/python-standalone.tar.gz)",
+      "Bash(echo 'NOT FOUND' echo echo '=== Wheel files ===' ls $APP/Contents/Resources/*.whl)",
+      "Bash(APP=/Users/matt/Library/Developer/Xcode/DerivedData/NawNo-bbgvmrwztthkhnbdzcawnghifvli/Build/Products/Debug/NawNo.app echo '=== Check python-bundle ===' ls -la $APP/Contents/Resources/python-bundle/)",
+      "Bash(echo 'NOT FOUND as dir' echo echo '=== Check flat ===' ls $APP/Contents/Resources/python-standalone.tar.gz)",
+      "Bash(echo 'No flat tarball' echo echo '=== All Resources ===' ls $APP/Contents/Resources/)"
     ]
   }
 }

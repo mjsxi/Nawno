@@ -8,6 +8,7 @@ struct ModelSettingsView: View {
     @State private var lastSaved: Date?
 
     @State private var pythonAvailable: Bool?
+    @State private var vlmAvailable: Bool?
 
     var body: some View {
         Form {
@@ -58,47 +59,81 @@ struct ModelSettingsView: View {
         Section("Inference Backend") {
             Picker("Backend", selection: $settings.backend) {
                 Text("Auto (try Python, fall back to Swift)").tag(BackendType.auto)
-                Text("Python (mlx-lm server)").tag(BackendType.python)
+                Text("Python (mlx-lm)").tag(BackendType.python)
+                Text("Python VLM (mlx-vlm, experimental)").tag(BackendType.pythonVLM)
                 Text("Swift (mlx-swift, native)").tag(BackendType.swift)
             }
             .pickerStyle(.radioGroup)
 
-            if settings.backend == .python || settings.backend == .auto {
-                HStack(spacing: 6) {
-                    if let available = pythonAvailable {
-                        Image(systemName: available ? "checkmark.circle.fill" : "xmark.circle.fill")
-                            .foregroundStyle(available ? .green : .red)
-                        Text(available ? "mlx-lm installed" : "mlx-lm not found")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                        if !available {
-                            Text("— install with: pip install mlx-lm")
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    } else {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Checking...")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+            if settings.backend != .swift {
+                VStack(alignment: .leading, spacing: 4) {
+                    packageStatusRow(name: "mlx-lm", available: pythonAvailable)
+
+                    if settings.backend == .pythonVLM || settings.backend == .auto {
+                        packageStatusRow(name: "mlx-vlm", available: vlmAvailable)
                     }
+                }
 
+                HStack {
                     Spacer()
-
                     Button("Re-check") {
                         pythonAvailable = nil
+                        vlmAvailable = nil
                         PythonMLXService.clearCache()
                         Task {
                             pythonAvailable = await PythonMLXService.isAvailable()
+                            vlmAvailable = await PythonMLXService.isVLMAvailable()
                         }
                     }
                     .font(.caption)
                 }
                 .task {
                     pythonAvailable = await PythonMLXService.isAvailable()
+                    vlmAvailable = await PythonMLXService.isVLMAvailable()
                 }
             }
+        }
+    }
+
+    @State private var installingPackage: String?
+
+    private func packageStatusRow(name: String, available: Bool?) -> some View {
+        HStack(spacing: 6) {
+            if installingPackage == name {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Installing \(name)...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else if let available {
+                Image(systemName: available ? "checkmark.circle.fill" : "xmark.circle.fill")
+                    .foregroundStyle(available ? .green : .red)
+                Text(available ? "\(name) installed" : "\(name) not found")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if !available {
+                    Button("Install") {
+                        installPackage(name)
+                    }
+                    .font(.caption)
+                }
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                Text("Checking \(name)...")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func installPackage(_ name: String) {
+        installingPackage = name
+        Task {
+            try? await PythonMLXService.installPackage(name)
+            installingPackage = nil
+            pythonAvailable = await PythonMLXService.isAvailable()
+            vlmAvailable = await PythonMLXService.isVLMAvailable()
         }
     }
 
@@ -188,6 +223,7 @@ struct ModelSettingsView: View {
             Text("When enabled, models that support thinking (e.g. QwQ, DeepSeek-R1) will show their reasoning process in a collapsible block.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+
 
             HStack {
                 Text("Max Tokens")
