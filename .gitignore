@@ -5,9 +5,6 @@ DerivedData/
 xcuserdata/
 *.xcuserstate
 
-# XcodeGen (regenerated from project.yml)
-NawNo.xcodeproj
-
 # Swift Package Manager
 .build/
 .swiftpm/
@@ -18,5 +15,9 @@ Package.resolved
 *.swp
 *~
 
+#claude
+.claude
+
 # Generated
 NawNo/Utilities/Generated/
+Lunar/Utilities/Generated/
