@@ -77,9 +77,11 @@ struct OnboardingInstallModelView: View {
                                 Text(appManager.modelDisplayName(modelName))
                             } icon: {
                                 Image(systemName: "checkmark")
+                                    .foregroundColor(.secondary)
                             }
                         }
                         .badge(installedSizeBadge(modelName))
+                        .tint(.primary)
                         #if os(macOS)
                             .buttonStyle(.borderless)
                         #endif
@@ -100,13 +102,14 @@ struct OnboardingInstallModelView: View {
                                 Label {
                                     HStack(spacing: 6) {
                                         Text(suggestion.displayName)
-                                            .tint(.primary)
                                         ramFitIndicator(forSizeGB: suggestion.sizeGB)
                                     }
                                 } icon: {
                                     Image(systemName: selectedModel.name == suggestion.repoId ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedModel.name == suggestion.repoId ? .appAccent : .primary)
                                 }
                             }
+                            .tint(.primary)
                             .badge("\(formatSize(suggestion.sizeGB)) GB")
                             #if os(macOS)
                                 .buttonStyle(.borderless)
