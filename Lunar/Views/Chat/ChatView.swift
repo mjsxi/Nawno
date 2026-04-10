@@ -25,6 +25,7 @@ struct ChatView: View {
     @State private var generatingThreadID: UUID?
     @State private var titlingScheduled: Set<UUID> = []
     @State private var emptyStatePhrase: String = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
+    @State private var moonRotation: Double = 0
 
     static let emptyStatePhrases: [String] = [
         "Say something...",
@@ -93,7 +94,7 @@ struct ChatView: View {
         #elseif os(macOS)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(platformBackgroundColor)
+                .fill(.background)
         )
         #endif
     }
@@ -213,26 +214,44 @@ struct ChatView: View {
             VStack(spacing: 0) {
                 if let currentThread = currentThread {
                     ConversationView(thread: currentThread, generatingThreadID: generatingThreadID)
+                    chatInput
+                        .padding()
                 } else {
-                    Spacer()
-                    VStack(spacing: 12) {
-                        Image(.lilGuy)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
-                            .frame(width: 96, height: 96)
-                        Text(emptyStatePhrase)
-                            .font(.headline)
-                            .foregroundStyle(.secondary)
+                    ZStack {
+                        GeometryReader { geo in
+                            Image(.moon)
+                                .resizable()
+                                .aspectRatio(contentMode: .fit)
+                                .frame(width: 700)
+                                .opacity(0.5)
+                                .rotationEffect(.degrees(moonRotation))
+                                .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 80)
+                        }
+
+                        VStack {
+                            Spacer()
+                            Text(emptyStatePhrase)
+                                .font(.headline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+
+                        VStack {
+                            Spacer()
+                            chatInput
+                                .padding()
+                        }
                     }
-                    .padding(.bottom, 24)
-                    .transition(.opacity.combined(with: .offset(y: -60)))
                     .onAppear {
                         emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
+                        moonRotation = 0
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.linear(duration: 360).repeatForever(autoreverses: false)) {
+                                moonRotation = 360
+                            }
+                        }
                     }
                 }
-
-                chatInput
-                    .padding()
             }
             .navigationTitle(chatTitle)
             .onChange(of: currentThread?.id) { _, _ in
