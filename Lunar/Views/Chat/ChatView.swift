@@ -235,11 +235,8 @@ struct ChatView: View {
                         .opacity(currentThread != nil ? 0.2 : 0.5)
                         .animation(.easeInOut(duration: 0.5), value: currentThread != nil)
                         .rotationEffect(.degrees(moonRotation))
-                        .position(x: geo.size.width / 2, y: geo.size.height - 300)
+                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
                 }
-                .frame(height: 800)
-                .frame(maxHeight: .infinity, alignment: .bottom)
-                .clipped()
             )
             .overlay(alignment: .top) {
                 LinearGradient(
