@@ -63,14 +63,15 @@ enum SuggestedModelsCatalog {
         SuggestedModel("https://huggingface.co/mlx-community/gemma-3-1b-it-4bit-DWQ",  "Gemma 3 1B IT 4bit DWQ",  0.73, 8,  false),
         SuggestedModel("https://huggingface.co/mlx-community/gemma-3-4b-it-4bit-DWQ",  "Gemma 3 4B IT 4bit DWQ",  2.56, 8,  false),
         //qwen
-        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-0.6B-4bit", "Qwen3 0.6B 4bit", 0.33, 8, true),
-        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-1.7B-4bit", "Qwen3 1.7B 4bit", 0.96, 8, true),
-        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-4B-4bit", "Qwen3 4B 4bit", 2.26, 8, true),
-        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-8B-4bit", "Qwen3 8B 4bit", 4.61, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-0.8B-MLX-4bit", "Qwen3.5 0.8B 4bit", 0.63, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-2B-MLX-4bit", "Qwen3.5 2B 4bit", 1.72, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-4B-MLX-4bit", "Qwen3.5 4B 4bit", 3.03, 8, true),
 
         // ——— 12 GB tier ———
         //gemma
         SuggestedModel("https://huggingface.co/mlx-community/gemma-3-12b-it-4bit-DWQ", "Gemma 3 12B IT 4bit DWQ", 7.19, 12, false),
+        //qwen
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-9B-MLX-4bit", "Qwen3.5 9B 4bit", 5.95, 12, true),
 
         // ——— 16 GB tier ———
 
@@ -78,9 +79,11 @@ enum SuggestedModelsCatalog {
         //gemma
         SuggestedModel("https://huggingface.co/mlx-community/gemma-3-27b-it-4bit-DWQ", "Gemma 3 27B IT 4bit DWQ", 16, 24, false),
         //qwen
-        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-30B-A3B-4bit", "Qwen3 30B A3B 4bit", 17.2, 24, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-27B-MLX-4bit", "Qwen3.5 27B 4bit", 16.1, 24, true),
 
         // ——— 32 GB tier ———
+        //qwen
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3.5-35B-A3B-4bit", "Qwen3.5 35B A3B 4bit", 20.4, 32, true),
 
         // ——— 48 GB tier ———
 
