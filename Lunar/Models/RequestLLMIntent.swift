@@ -4,8 +4,8 @@ import SwiftUI
 
 @available(iOS 16.0, macOS 13.0, *)
 struct RequestLLMIntent: AppIntent {
-    static var title: LocalizedStringResource = "new chat"
-    static var description: LocalizedStringResource = "start a new chat"
+    static let title: LocalizedStringResource = "new chat"
+    static let description: LocalizedStringResource = "start a new chat"
     
     @Parameter(title: "Continuous Chat", default: true)
     var continuous: Bool
@@ -87,7 +87,7 @@ struct RequestLLMIntent: AppIntent {
         }
     }
 
-    static var openAppWhenRun: Bool = false
+    static let openAppWhenRun: Bool = false
 }
 
 struct NewChatShortcut: AppShortcutsProvider {

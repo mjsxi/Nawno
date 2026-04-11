@@ -53,9 +53,10 @@ public struct ChatTurn {
     }
 }
 
+@MainActor
 public protocol InferenceBackend: AnyObject {
     /// Eagerly download/load the model weights.
-    func load(modelName: String, progress: @escaping (Double) -> Void) async throws
+    func load(modelName: String, progress: @Sendable @escaping (Double) -> Void) async throws
 
     /// Streaming generation. Each yielded String is the *full* output so far
     /// (matching how LLMEvaluator already updates its `output` property).

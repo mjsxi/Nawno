@@ -13,6 +13,7 @@
 #if os(macOS)
 import Foundation
 
+@MainActor
 final class PythonMLXBackend: InferenceBackend {
     private(set) var serverProcess: Process?
     private(set) var serverPort: Int?
@@ -34,7 +35,7 @@ final class PythonMLXBackend: InferenceBackend {
     /// Last error output captured from the Python server's stderr.
     private(set) var lastServerError: String?
 
-    func load(modelName: String, progress: @escaping (Double) -> Void) async throws {
+    func load(modelName: String, progress: @Sendable @escaping (Double) -> Void) async throws {
         if loadedModelName == modelName, serverProcess?.isRunning == true { return }
         await stopServer()
         lastServerError = nil
@@ -117,7 +118,7 @@ final class PythonMLXBackend: InferenceBackend {
                   messages: [ChatTurn],
                   params: GenerateParams) -> AsyncThrowingStream<String, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            Task { @MainActor in
                 do {
                     try await self.load(modelName: modelName) { _ in }
                     guard let port = self.serverPort else {

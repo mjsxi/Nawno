@@ -24,14 +24,17 @@ public extension ModelConfiguration {
 }
 
 extension ModelConfiguration {
+    @MainActor
     public static var availableModels: [ModelConfiguration] = SuggestedModelsCatalog.all.map {
         ModelConfiguration(id: $0.repoId)
     }
 
+    @MainActor
     public static var defaultModel: ModelConfiguration {
         availableModels.first ?? ModelConfiguration(id: "mlx-community/Llama-3.2-1B-Instruct-4bit")
     }
 
+    @MainActor
     public static func getModelByName(_ name: String) -> ModelConfiguration? {
         if let model = availableModels.first(where: { $0.name == name }) {
             return model

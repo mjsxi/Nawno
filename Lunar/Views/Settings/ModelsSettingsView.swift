@@ -120,7 +120,7 @@ struct ModelsSettingsView: View {
                             }
                         }
                         #endif
-                    }
+                }
             }
         }
     }

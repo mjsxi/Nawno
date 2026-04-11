@@ -15,7 +15,7 @@ import MLXLMCommon
 import MLXRandom
 
 @MainActor
-final class MLXSwiftBackend: @preconcurrency InferenceBackend {
+final class MLXSwiftBackend: InferenceBackend {
     private var loadedContainer: ModelContainer?
     private var loadedName: String?
     private var cancelled = false
@@ -26,7 +26,7 @@ final class MLXSwiftBackend: @preconcurrency InferenceBackend {
         MLX.Memory.clearCache()
     }
 
-    func load(modelName: String, progress: @escaping (Double) -> Void) async throws {
+    func load(modelName: String, progress: @Sendable @escaping (Double) -> Void) async throws {
         if loadedName == modelName, loadedContainer != nil { return }
         // Release the previous model before loading a new one
         unload()
@@ -96,6 +96,7 @@ final class MLXSwiftBackend: @preconcurrency InferenceBackend {
 extension ModelConfiguration {
     /// Look up a model by name; if it's a HF repo we don't know about yet,
     /// register a fresh ModelConfiguration on the fly.
+    @MainActor
     static func getOrRegister(_ name: String) -> ModelConfiguration {
         if let existing = getModelByName(name) { return existing }
         let cfg = ModelConfiguration(id: name)
