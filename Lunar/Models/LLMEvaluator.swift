@@ -117,9 +117,7 @@ class LLMEvaluator {
     /// load and return the model -- can be called multiple times, subsequent calls will
     /// just return the loaded model
     func load(modelName: String) async throws -> ModelContainer {
-        guard let model = ModelConfiguration.getModelByName(modelName) else {
-            throw LLMEvaluatorError.modelNotFound(modelName)
-        }
+        let model = ModelConfiguration.getOrRegister(modelName)
 
         switch loadState {
         case .idle, .failed, .loadedPython:

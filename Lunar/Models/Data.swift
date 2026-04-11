@@ -267,11 +267,9 @@ class AppManager: ObservableObject {
 
     /// Returns the on-disk size of a downloaded model in GB, or the catalog size as fallback.
     func modelSizeGB(for modelName: String) -> Double? {
-        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let dir = docs.appendingPathComponent("huggingface/models/\(modelName)")
-            if let bytes = directorySize(dir), bytes > 0 {
-                return Double(bytes) / 1_073_741_824.0
-            }
+        let dir = LunarHubDownloader.downloadBase.appendingPathComponent("models/\(modelName)")
+        if let bytes = directorySize(dir), bytes > 0 {
+            return Double(bytes) / 1_073_741_824.0
         }
         return SuggestedModelsCatalog.first(matching: modelName)?.sizeGB
     }
@@ -353,12 +351,9 @@ class AppManager: ObservableObject {
         if currentModelName == model {
             currentModelName = installedModels.first
         }
-        // Best-effort: delete the HuggingFace snapshot cache directory.
-        // swift-transformers' HubApi stores under ~/Documents/huggingface/models/<repo>.
-        if let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            let dir = docs.appendingPathComponent("huggingface/models/\(model)")
-            try? FileManager.default.removeItem(at: dir)
-        }
+        // Best-effort: delete the model snapshot cache directory (~/.lunar/models/<repo>).
+        let dir = LunarHubDownloader.downloadBase.appendingPathComponent("models/\(model)")
+        try? FileManager.default.removeItem(at: dir)
     }
     
     func modelDisplayName(_ modelName: String) -> String {

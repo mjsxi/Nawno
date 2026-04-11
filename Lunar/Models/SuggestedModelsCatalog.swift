@@ -32,6 +32,11 @@ struct SuggestedModel: Identifiable, Hashable {
         self.isReasoning = isReasoning
     }
 
+    /// Shorthand: url, displayName, sizeGB, tierGB, isReasoning
+    init(_ url: String, _ displayName: String, _ sizeGB: Double, _ tierGB: Int, _ isReasoning: Bool) {
+        self.init(url: url, displayName: displayName, sizeGB: sizeGB, tierGB: tierGB, isReasoning: isReasoning)
+    }
+
     var id: String { repoId }
     var huggingFaceURL: URL { URL(string: "https://huggingface.co/\(repoId)")! }
 
@@ -51,26 +56,29 @@ struct SuggestedModel: Identifiable, Hashable {
 enum SuggestedModelsCatalog {
     static let tiers: [Int] = [128, 64, 48, 32, 24, 16, 12, 8]
 
+    // Shorthand: (url, displayName, sizeGB, tierGB, isReasoning)
     static let all: [SuggestedModel] = [
         // ——— 8 GB tier ———
-        SuggestedModel(url: "https://huggingface.co/mlx-community/gemma-3-1b-it-4bit-DWQ",
-                       displayName: "Gemma 3 1B IT 4bit DWQ",
-                       sizeGB: 0.73, tierGB: 8, isReasoning: false),
-        SuggestedModel(url: "https://huggingface.co/mlx-community/gemma-3-4b-it-4bit-DWQ",
-                       displayName: "Gemma 3 4B IT 4bit DWQ",
-                       sizeGB: 2.56, tierGB: 8, isReasoning: false),
+        //gemma
+        SuggestedModel("https://huggingface.co/mlx-community/gemma-3-1b-it-4bit-DWQ",  "Gemma 3 1B IT 4bit DWQ",  0.73, 8,  false),
+        SuggestedModel("https://huggingface.co/mlx-community/gemma-3-4b-it-4bit-DWQ",  "Gemma 3 4B IT 4bit DWQ",  2.56, 8,  false),
+        //qwen
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-0.6B-4bit", "Qwen3 0.6B 4bit", 0.33, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-1.7B-4bit", "Qwen3 1.7B 4bit", 0.96, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-4B-4bit", "Qwen3 4B 4bit", 2.26, 8, true),
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-8B-4bit", "Qwen3 8B 4bit", 4.61, 8, true),
 
         // ——— 12 GB tier ———
-        SuggestedModel(url: "https://huggingface.co/mlx-community/gemma-3-12b-it-4bit-DWQ",
-                       displayName: "Gemma 3 12B IT 4bit DWQ",
-                       sizeGB: 7.19, tierGB: 12, isReasoning: false),
+        //gemma
+        SuggestedModel("https://huggingface.co/mlx-community/gemma-3-12b-it-4bit-DWQ", "Gemma 3 12B IT 4bit DWQ", 7.19, 12, false),
 
         // ——— 16 GB tier ———
 
         // ——— 24 GB tier ———
-        SuggestedModel(url: "https://huggingface.co/mlx-community/gemma-3-27b-it-4bit-DWQ",
-                       displayName: "Gemma 3 27B IT 4bit DWQ",
-                       sizeGB: 16, tierGB: 24, isReasoning: false),
+        //gemma
+        SuggestedModel("https://huggingface.co/mlx-community/gemma-3-27b-it-4bit-DWQ", "Gemma 3 27B IT 4bit DWQ", 16, 24, false),
+        //qwen
+        SuggestedModel("https://huggingface.co/mlx-community/Qwen3-30B-A3B-4bit", "Qwen3 30B A3B 4bit", 17.2, 24, true),
 
         // ——— 32 GB tier ———
 

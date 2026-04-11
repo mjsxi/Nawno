@@ -40,6 +40,10 @@ struct SettingsView: View {
                         .badge(appManager.modelDisplayName(appManager.currentModelName ?? ""))
                     }
 
+                    NavigationLink(destination: KnowledgeBaseSettingsView()) {
+                        Label("knowledge base", systemImage: "text.book.closed")
+                    }
+
                     NavigationLink(destination: AppearanceSettingsView()) {
                         Label("appearance", systemImage: "paintbrush")
                     }
@@ -51,16 +55,12 @@ struct SettingsView: View {
                     NavigationLink(destination: ChatsSettingsView(currentThread: $currentThread)) {
                         Label("chats", systemImage: "ellipsis.bubble")
                     }
-
-                    NavigationLink(destination: KnowledgeBaseSettingsView()) {
-                        Label("knowledge base", systemImage: "doc.text.magnifyingglass")
-                    }
                 }
 
                 Section {} footer: {
                     HStack {
                         Spacer()
-                        Text("v\(Bundle.main.releaseVersionNumber ?? "0").\(Bundle.main.buildVersionNumber ?? "0")")
+                        Text("\(Bundle.main.releaseVersionNumber ?? "0") (\(Bundle.main.buildVersionNumber ?? "0"))")
                             .font(.footnote)
                             .foregroundStyle(.tertiary)
                         Spacer()

@@ -15,7 +15,13 @@ import Hub
 import Tokenizers
 
 /// Downloads model snapshots from huggingface.co via swift-transformers' HubApi.
+/// Models are stored under ~/.lunar/models/<repo-id>/.
 struct LunarHubDownloader: MLXLMCommon.Downloader {
+    static let downloadBase: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent(".lunar")
+
+    private let hubApi = HubApi(downloadBase: LunarHubDownloader.downloadBase)
+
     func download(
         id: String,
         revision: String?,
@@ -23,7 +29,7 @@ struct LunarHubDownloader: MLXLMCommon.Downloader {
         useLatest: Bool,
         progressHandler: @Sendable @escaping (Progress) -> Void
     ) async throws -> URL {
-        try await HubApi.shared.snapshot(
+        try await hubApi.snapshot(
             from: Hub.Repo(id: id),
             revision: revision ?? "main",
             matching: patterns,

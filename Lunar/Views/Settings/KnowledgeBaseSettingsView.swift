@@ -20,24 +20,50 @@ struct KnowledgeBaseSettingsView: View {
 
     var body: some View {
         Form {
-            Section(header: Text("folder"), footer: Text("select a folder containing your writing and documents. supported formats: .txt, .md, .pdf, .rtf")) {
-                if let url = knowledgeBase.folderURL {
+            if let url = knowledgeBase.folderURL {
+                Section(header: Text("folder"), footer: Text("select a folder containing your writing and documents. supported formats: .txt, .md, .pdf, .rtf")) {
                     LabeledContent("path", value: url.lastPathComponent)
-                    Button("change folder") {
+                    HStack(spacing: 12) {
+                        Button {
+                            pickFolder()
+                        } label: {
+                            Text("change folder")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+
+                        Button(role: .destructive) {
+                            knowledgeBase.removeFolder()
+                        } label: {
+                            Text("remove folder")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(.red)
+                    }
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                }
+            } else {
+                Section(header: Text("folder"), footer: Text("select a folder containing your writing and documents. supported formats: .txt, .md, .pdf, .rtf")) {
+                    Button {
                         pickFolder()
+                    } label: {
+                        Text("select folder")
+                            .frame(maxWidth: .infinity)
                     }
-                    Button("remove folder", role: .destructive) {
-                        knowledgeBase.removeFolder()
-                    }
-                } else {
-                    Button("select folder") {
-                        pickFolder()
-                    }
+                    .buttonStyle(.bordered)
                 }
             }
 
             if knowledgeBase.hasFolderConfigured {
-                Section(header: Text("index"), footer: Text("the index is stored as a .lunar_index folder inside your knowledge base folder.")) {
+                if knowledgeBase.hasIndex {
+                    Section(header: Text("resources")) {
+                        LabeledContent("RAM estimate", value: knowledgeBase.stats.ramEstimateFormatted)
+                        LabeledContent("disk usage", value: knowledgeBase.stats.diskUsageFormatted)
+                    }
+                }
+
+                Section(header: Text("index"), footer: Text("your documents are split into searchable chunks so the model can find relevant content. refresh updates for new or changed files. rebuild re-processes everything from scratch.")) {
                     if knowledgeBase.isIndexing {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("indexing...")
@@ -48,23 +74,32 @@ struct KnowledgeBaseSettingsView: View {
                         LabeledContent("files indexed", value: "\(knowledgeBase.stats.fileCount)")
                         LabeledContent("chunks", value: "\(knowledgeBase.stats.chunkCount)")
 
-                        Button {
-                            Task { await knowledgeBase.refresh() }
-                        } label: {
-                            Label("refresh index", systemImage: "arrow.clockwise")
-                        }
+                        HStack(spacing: 12) {
+                            Button {
+                                Task { await knowledgeBase.refresh() }
+                            } label: {
+                                Text("refresh index")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
 
-                        Button {
-                            Task { await knowledgeBase.indexFolder() }
-                        } label: {
-                            Label("rebuild index", systemImage: "arrow.triangle.2.circlepath")
+                            Button {
+                                Task { await knowledgeBase.indexFolder() }
+                            } label: {
+                                Text("rebuild index")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                         }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                     } else {
                         Button {
                             Task { await knowledgeBase.indexFolder() }
                         } label: {
-                            Label("build index", systemImage: "doc.text.magnifyingglass")
+                            Text("build index")
+                                .frame(maxWidth: .infinity)
                         }
+                        .buttonStyle(.bordered)
                     }
 
                     if let error = knowledgeBase.errorMessage {
@@ -75,23 +110,22 @@ struct KnowledgeBaseSettingsView: View {
                 }
 
                 if knowledgeBase.hasIndex {
-                    Section(header: Text("resources")) {
-                        LabeledContent("RAM estimate", value: knowledgeBase.stats.ramEstimateFormatted)
-                        LabeledContent("disk usage", value: knowledgeBase.stats.diskUsageFormatted)
-                    }
-
-                    Section(header: Text("retrieval"), footer: Text("number of text chunks to include as context when answering questions.")) {
+                    Section(header: Text("retrieval"), footer: Text("how many chunks of your writing to include as context. more chunks means more context for the model, but uses more of its context window.")) {
                         Stepper("context chunks: \(appManager.ragTopK)", value: $appManager.ragTopK, in: 1...20)
                     }
 
-                    Section {
-                        Button(role: .destructive) {
-                            showPurgeConfirmation = true
-                        } label: {
-                            Label("purge knowledge base", systemImage: "trash")
-                                .foregroundStyle(.red)
-                        }
+                    Button(role: .destructive) {
+                        showPurgeConfirmation = true
+                    } label: {
+                        Label("purge knowledge base", systemImage: "trash")
+                            .foregroundStyle(.red)
+                            .frame(maxWidth: .infinity)
                     }
+                    #if os(macOS)
+                    .buttonStyle(.borderless)
+                    #endif
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
             }
         }
