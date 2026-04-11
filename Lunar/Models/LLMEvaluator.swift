@@ -172,7 +172,7 @@ class LLMEvaluator {
 
         // Augment system prompt with knowledge base context if RAG is enabled
         var effectiveSystemPrompt = systemPrompt
-        if let kb = knowledgeBase, kb.hasIndex, readRAGEnabled(for: modelName) {
+        if let kb = knowledgeBase, kb.hasIndex {
             let lastUserMessage = thread.sortedMessages.last(where: { $0.role == .user })?.content ?? ""
             if !lastUserMessage.isEmpty {
                 let ragTopK = UserDefaults.standard.integer(forKey: "ragTopK")

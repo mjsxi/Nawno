@@ -54,6 +54,52 @@ struct ChatView: View {
         #endif
     }()
 
+    var knowledgeBaseToggle: some View {
+        Button {
+            toggleRAGForCurrentChat()
+        } label: {
+            Image(systemName: isRAGActiveForChat ? "text.book.closed.fill" : "text.book.closed")
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(isRAGActiveForChat ? Color.appAccent : .gray)
+            #if os(iOS)
+                .frame(width: 24, height: 24)
+            #else
+                .frame(width: 16, height: 16)
+            #endif
+        }
+        #if os(iOS)
+            .padding(.trailing, 4)
+            .padding(.bottom, 12)
+        #else
+            .padding(.trailing, 4)
+            .padding(.bottom, 8)
+        #endif
+        #if os(macOS)
+        .buttonStyle(.plain)
+        #endif
+    }
+
+    private var isRAGActiveForChat: Bool {
+        if let thread = currentThread, let override = thread.ragEnabled {
+            return override
+        }
+        guard let modelName = appManager.currentModelName else { return false }
+        return appManager.isRAGEnabled(for: modelName)
+    }
+
+    private func toggleRAGForCurrentChat() {
+        if let thread = currentThread {
+            let current = isRAGActiveForChat
+            thread.ragEnabled = !current
+        } else {
+            if let modelName = appManager.currentModelName {
+                let current = appManager.isRAGEnabled(for: modelName)
+                appManager.setRAGEnabled(!current, for: modelName)
+            }
+        }
+    }
+
     var chatInput: some View {
         HStack(alignment: .bottom, spacing: 0) {
             TextField(inputPlaceholder, text: $prompt, axis: .vertical)
@@ -81,6 +127,10 @@ struct ChatView: View {
                 generate()
             }
             #endif
+
+            if knowledgeBase.hasIndex {
+                knowledgeBaseToggle
+            }
 
             if llm.running {
                 stopButton
@@ -392,7 +442,7 @@ struct ChatView: View {
                     sendMessage(Message(role: .user, content: message, thread: currentThread))
                     isPromptFocused = true
                     if let modelName = appManager.currentModelName {
-                        let output = await llm.generate(modelName: modelName, thread: currentThread, systemPrompt: appManager.systemPrompt(for: modelName), knowledgeBase: knowledgeBase)
+                        let output = await llm.generate(modelName: modelName, thread: currentThread, systemPrompt: appManager.systemPrompt(for: modelName), knowledgeBase: isRAGActiveForChat ? knowledgeBase : nil)
                         sendMessage(Message(role: .assistant, content: output, thread: currentThread, generatingTime: llm.thinkingTime, tokensPerSecond: llm.lastTokensPerSecond, tokenCount: llm.lastTokenCount, timeToFirstToken: llm.lastTimeToFirstToken))
                         generatingThreadID = nil
                         maybeScheduleTitleSummary(for: currentThread)

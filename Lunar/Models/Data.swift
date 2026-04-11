@@ -439,6 +439,7 @@ final class Thread {
     var title: String?
     var modelName: String?
     var timestamp: Date
+    var ragEnabled: Bool?
 
     @Relationship var messages: [Message] = []
 
@@ -450,6 +451,7 @@ final class Thread {
         self.id = UUID()
         self.modelName = modelName
         self.timestamp = Date()
+        self.ragEnabled = nil
     }
 }
 
