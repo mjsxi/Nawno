@@ -24,14 +24,16 @@ struct LunarApp: App {
     init() {
         let modelSettings = ModelSettingsStore()
         let appPreferences = AppPreferences()
+        let usageStats = UsageStatsStore()
         let llm = LLMEvaluator(modelSettingsStore: modelSettings)
         _appPreferences = StateObject(wrappedValue: appPreferences)
         _modelSettings = StateObject(wrappedValue: modelSettings)
-        _usageStats = StateObject(wrappedValue: UsageStatsStore())
+        _usageStats = StateObject(wrappedValue: usageStats)
         _localhostServer = StateObject(
             wrappedValue: LocalhostServerController(
                 appPreferences: appPreferences,
                 modelSettings: modelSettings,
+                usageStats: usageStats,
                 llm: llm
             )
         )

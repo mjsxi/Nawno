@@ -20,6 +20,7 @@ final class LocalhostServerController: ObservableObject {
 
     private let appPreferences: AppPreferences
     private let modelSettings: ModelSettingsStore
+    private let usageStats: UsageStatsStore
     private let llm: LLMEvaluator
     private let generationGate = LocalhostGenerationGate()
 
@@ -27,9 +28,15 @@ final class LocalhostServerController: ObservableObject {
     private var server: LocalhostHTTPServer?
     #endif
 
-    init(appPreferences: AppPreferences, modelSettings: ModelSettingsStore, llm: LLMEvaluator) {
+    init(
+        appPreferences: AppPreferences,
+        modelSettings: ModelSettingsStore,
+        usageStats: UsageStatsStore,
+        llm: LLMEvaluator
+    ) {
         self.appPreferences = appPreferences
         self.modelSettings = modelSettings
+        self.usageStats = usageStats
         self.llm = llm
     }
 
@@ -244,6 +251,7 @@ final class LocalhostServerController: ObservableObject {
 
             let requestID = "chatcmpl-\(UUID().uuidString.lowercased())"
             let created = Int(Date().timeIntervalSince1970)
+            let requestStart = Date()
             if chatRequest.stream == true {
                 let stream = AsyncThrowingStream<String, Error> { continuation in
                     Task {
@@ -252,6 +260,8 @@ final class LocalhostServerController: ObservableObject {
                         }
 
                         do {
+                            var firstTokenTime: Date?
+                            var finalOutput = ""
                             continuation.yield(Self.sseLine(for: OpenAIChatCompletionChunkResponse(
                                 id: requestID,
                                 created: created,
@@ -267,6 +277,10 @@ final class LocalhostServerController: ObservableObject {
 
                             var previous = ""
                             for try await output in outputStream {
+                                if firstTokenTime == nil {
+                                    firstTokenTime = Date()
+                                }
+                                finalOutput = output
                                 let delta = String(output.dropFirst(previous.count))
                                 previous = output
                                 guard !delta.isEmpty else { continue }
@@ -297,6 +311,11 @@ final class LocalhostServerController: ObservableObject {
                                 ]
                             )))
                             continuation.yield("data: [DONE]\n\n")
+                            self.recordUsageStatsIfNeeded(
+                                output: finalOutput,
+                                requestStart: requestStart,
+                                firstTokenTime: firstTokenTime
+                            )
                             continuation.finish()
                         } catch {
                             continuation.finish(throwing: error)
@@ -316,8 +335,12 @@ final class LocalhostServerController: ObservableObject {
             }
 
             var finalOutput = ""
+            var firstTokenTime: Date?
             do {
                 for try await output in outputStream {
+                    if firstTokenTime == nil {
+                        firstTokenTime = Date()
+                    }
                     finalOutput = output
                 }
             } catch {
@@ -325,6 +348,11 @@ final class LocalhostServerController: ObservableObject {
                 return Self.errorResponse(status: 500, message: error.localizedDescription, type: "server_error")
             }
 
+            recordUsageStatsIfNeeded(
+                output: finalOutput,
+                requestStart: requestStart,
+                firstTokenTime: firstTokenTime
+            )
             await generationGate.release()
             return Self.jsonResponse(
                 status: 200,
@@ -368,6 +396,27 @@ final class LocalhostServerController: ObservableObject {
         let encoder = JSONEncoder()
         let data = (try? encoder.encode(payload)) ?? Data("{}".utf8)
         return "data: \(String(decoding: data, as: UTF8.self))\n\n"
+    }
+
+    private func recordUsageStatsIfNeeded(
+        output: String,
+        requestStart: Date,
+        firstTokenTime: Date?
+    ) {
+        let trimmed = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, !trimmed.hasPrefix("Failed:") else { return }
+
+        let estimatedTokenCount = PromptTokenEstimator.estimate(text: trimmed)
+        let totalDuration = Date().timeIntervalSince(requestStart)
+        let tokensPerSecond = totalDuration > 0 ? Double(estimatedTokenCount) / totalDuration : nil
+        let timeToFirstToken = firstTokenTime.map { $0.timeIntervalSince(requestStart) }
+
+        usageStats.recordGeneration(
+            tokenCount: estimatedTokenCount,
+            tokensPerSecond: tokensPerSecond,
+            generatingTime: totalDuration > 0 ? totalDuration : nil,
+            timeToFirstToken: timeToFirstToken
+        )
     }
     #endif
 }
