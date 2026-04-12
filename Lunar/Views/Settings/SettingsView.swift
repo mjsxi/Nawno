@@ -8,26 +8,36 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
+    @EnvironmentObject private var modelSettings: ModelSettingsStore
     @Environment(\.dismiss) var dismiss
-    @Environment(LLMEvaluator.self) var llm
-    @Binding var currentThread: Thread?
+    @Bindable var chatSession: ChatSessionController
 
     var body: some View {
         NavigationStack {
             Form {
-                Section {} header: {
-                    HStack {
-                        Spacer()
-                        Image(.ohNoNawno)
+                Section {
+                    VStack(spacing: 20) {
+                        Image(.moon)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
-                            .foregroundStyle(.secondary)
-                            .frame(height: 48)
-                            .padding(.vertical, 8)
-                        Spacer()
+                            .frame(width: 64, height: 64)
+
+                        VStack(spacing: 8) {
+                            Text("Lunar")
+                                .font(.title)
+                                .fontWeight(.semibold)
+
+                            Text("a delightful app for running local LLMs with your knowledge")
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
+                    .padding(.vertical)
+                    .padding(.horizontal, 32)
+                    .frame(maxWidth: .infinity)
                 }
+                .listRowBackground(Color.clear)
 
                 Section {
                     NavigationLink(destination: ModelsSettingsView()) {
@@ -37,7 +47,7 @@ struct SettingsView: View {
                         } icon: {
                             Image(systemName: "gyroscope")
                         }
-                        .badge(appManager.modelDisplayName(appManager.currentModelName ?? ""))
+                        .badge(modelSettings.displayName(for: appPreferences.currentModelName ?? ""))
                     }
 
                     NavigationLink(destination: KnowledgeBaseSettingsView()) {
@@ -52,7 +62,7 @@ struct SettingsView: View {
                         Label("universal prompt", systemImage: "list.bullet.rectangle.portrait")
                     }
 
-                    NavigationLink(destination: ChatsSettingsView(currentThread: $currentThread)) {
+                    NavigationLink(destination: ChatsSettingsView(chatSession: chatSession)) {
                         Label("chats", systemImage: "ellipsis.bubble")
                     }
                 }
@@ -67,30 +77,33 @@ struct SettingsView: View {
                     }
                     .padding(.vertical)
                 }
+
+                #if os(macOS)
+                Button {
+                    dismiss()
+                } label: {
+                    Text("close")
+                        .themedSettingsButtonContent()
+                }
+                .buttonStyle(.borderless)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+                #endif
             }
             .formStyle(.grouped)
-            .navigationTitle("settings")
-            #if os(iOS)
-                .navigationBarTitleDisplayMode(.inline)
-            #endif
-                .toolbar {
-                    #if os(iOS)
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(action: { dismiss() }) {
-                            Image(systemName: "xmark")
-                        }
+            .centeredSettingsPageTitle("settings")
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
                     }
-                    #elseif os(macOS)
-                    ToolbarItem(placement: .destructiveAction) {
-                        Button(action: { dismiss() }) {
-                            Text("close")
-                        }
-                    }
-                    #endif
                 }
+                #endif
+            }
         }
-        .tint(appManager.appTintColor.getColor())
-        .environment(\.dynamicTypeSize, appManager.appFontSize.getFontSize())
+        .tint(appPreferences.appTintColor.getColor())
+        .environment(\.dynamicTypeSize, appPreferences.appFontSize.getFontSize())
     }
 }
 
@@ -104,9 +117,33 @@ extension Bundle {
     }
 }
 
+extension View {
+    func centeredSettingsButtonContent() -> some View {
+        frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    func themedSettingsButtonContent(color: Color = .accentColor) -> some View {
+        centeredSettingsButtonContent()
+            .foregroundStyle(color)
+            .padding(.vertical, 12)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(color.opacity(0.08))
+            )
+    }
+
+    func centeredSettingsPageTitle(_ title: String) -> some View {
+        navigationTitle(title)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+    }
+}
+
 #Preview {
-    SettingsView(currentThread: .constant(nil))
-        .environmentObject(AppManager())
+    SettingsView(chatSession: ChatSessionController())
+        .environmentObject(AppPreferences())
+        .environmentObject(ModelSettingsStore())
         .environmentObject(KnowledgeBaseIndex())
         .environment(LLMEvaluator())
 }

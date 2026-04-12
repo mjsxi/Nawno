@@ -8,12 +8,12 @@
 import SwiftUI
 
 struct AppearanceSettingsView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
 
     var body: some View {
         Form {
             Section {
-                Picker(selection: $appManager.appColorScheme) {
+                Picker(selection: $appPreferences.appColorScheme) {
                     Text("system").tag(AppColorScheme.system)
                     Text("light").tag(AppColorScheme.light)
                     Text("dark").tag(AppColorScheme.dark)
@@ -25,7 +25,7 @@ struct AppearanceSettingsView: View {
 
             #if os(iOS)
             Section {
-                Picker(selection: $appManager.appTintColor) {
+                Picker(selection: $appPreferences.appTintColor) {
                     ForEach(AppTintColor.allCases.sorted(by: { $0.rawValue < $1.rawValue }), id: \.rawValue) { option in
                         Text(String(describing: option).lowercased())
                             .tag(option)
@@ -37,7 +37,7 @@ struct AppearanceSettingsView: View {
             #endif
         }
         .formStyle(.grouped)
-        .navigationTitle("appearance")
+        .centeredSettingsPageTitle("appearance")
         #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
         #endif

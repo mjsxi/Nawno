@@ -38,7 +38,7 @@ struct PythonBackendSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("python backend")
+        .centeredSettingsPageTitle("python backend")
         .task { await recheck() }
     }
 
@@ -94,6 +94,7 @@ struct PythonBackendSettingsView: View {
                         if let url = URL(string: "https://brew.sh") { NSWorkspace.shared.open(url) }
                     } label: {
                         Label("open brew.sh", systemImage: "safari")
+                            .themedSettingsButtonContent()
                     }
 
                     Text("2. then run in Terminal:")
@@ -130,7 +131,12 @@ struct PythonBackendSettingsView: View {
         }
 
         Section {
-            Button("re-check") { Task { await recheck() } }
+            Button {
+                Task { await recheck() }
+            } label: {
+                Text("re-check")
+                    .themedSettingsButtonContent()
+            }
                 .buttonStyle(.borderless)
         }
     }
@@ -164,6 +170,7 @@ struct PythonBackendSettingsView: View {
                         Text("install mlx-lm")
                     }
                 }
+                .themedSettingsButtonContent()
             }
             .disabled(installing)
 
@@ -208,6 +215,7 @@ struct PythonBackendSettingsView: View {
                     if let url = URL(string: "https://brew.sh") { NSWorkspace.shared.open(url) }
                 } label: {
                     Label("open brew.sh", systemImage: "safari")
+                        .themedSettingsButtonContent()
                 }
 
                 Text("2. then run in Terminal:")

@@ -9,80 +9,82 @@ import SwiftData
 import SwiftUI
 
 struct ContentView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var appPreferences: AppPreferences
+    @EnvironmentObject var modelSettings: ModelSettingsStore
+    @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @Environment(\.modelContext) var modelContext
     @Environment(LLMEvaluator.self) var llm
+    @State private var chatSession = ChatSessionController()
     @State var showOnboarding = false
     @State var showSettings = false
     @State var showChats = false
-    @State var currentThread: Thread?
     @FocusState var isPromptFocused: Bool
 
     var body: some View {
         Group {
-            if appManager.userInterfaceIdiom == .pad || appManager.userInterfaceIdiom == .mac {
-                // iPad
+            if appPreferences.userInterfaceIdiom == .pad || appPreferences.userInterfaceIdiom == .mac {
                 NavigationSplitView {
-                    ChatsListView(currentThread: $currentThread, isPromptFocused: $isPromptFocused)
+                    ChatsListView(chatSession: chatSession, isPromptFocused: $isPromptFocused)
                     #if os(macOS)
                     .navigationSplitViewColumnWidth(min: 240, ideal: 240, max: 320)
                     #endif
                 } detail: {
-                    ChatView(currentThread: $currentThread, isPromptFocused: $isPromptFocused, showChats: $showChats, showSettings: $showSettings)
+                    ChatView(chatSession: chatSession, isPromptFocused: $isPromptFocused, showChats: $showChats, showSettings: $showSettings)
                 }
             } else {
-                // iPhone
-                ChatView(currentThread: $currentThread, isPromptFocused: $isPromptFocused, showChats: $showChats, showSettings: $showSettings)
+                ChatView(chatSession: chatSession, isPromptFocused: $isPromptFocused, showChats: $showChats, showSettings: $showSettings)
             }
         }
-        .environmentObject(appManager)
-        .environment(llm)
         .task {
+            chatSession.configure(
+                preferences: appPreferences,
+                modelSettings: modelSettings,
+                knowledgeBase: knowledgeBase,
+                llm: llm,
+                modelContext: modelContext
+            )
             isPromptFocused = true
-            if let modelName = appManager.currentModelName {
+        }
+        .task(id: appPreferences.currentModelName) {
+            if let modelName = appPreferences.currentModelName {
                 await llm.switchModel(named: modelName)
             }
         }
-        .if(appManager.userInterfaceIdiom == .phone) { view in
+        .if(appPreferences.userInterfaceIdiom == .phone) { view in
             view
                 .gesture(
                     DragGesture()
                         .onChanged { gesture in
                             if !showChats && gesture.startLocation.x < 20 && gesture.translation.width > 100 {
-                                appManager.playHaptic()
+                                appPreferences.playHaptic()
                                 showChats = true
                             }
                         }
                 )
         }
         .sheet(isPresented: $showChats) {
-            ChatsListView(currentThread: $currentThread, isPromptFocused: $isPromptFocused)
-                .environmentObject(appManager)
+            ChatsListView(chatSession: chatSession, isPromptFocused: $isPromptFocused)
                 .presentationDragIndicator(.hidden)
-                .if(appManager.userInterfaceIdiom == .phone) { view in
+                .if(appPreferences.userInterfaceIdiom == .phone) { view in
                     view.presentationDetents([.medium, .large])
                 }
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(currentThread: $currentThread)
-                .environmentObject(appManager)
-                .environment(llm)
+            SettingsView(chatSession: chatSession)
                 .presentationDragIndicator(.hidden)
-                .if(appManager.userInterfaceIdiom == .phone) { view in
+                .if(appPreferences.userInterfaceIdiom == .phone) { view in
                     view.presentationDetents([.medium])
                 }
         }
         .sheet(isPresented: $showOnboarding, onDismiss: dismissOnboarding) {
             OnboardingView(showOnboarding: $showOnboarding)
-                .environment(llm)
-            
         }
-        .tint(appManager.appTintColor.getColor())
-        .fontDesign(appManager.appFontDesign.getFontDesign())
-        .environment(\.dynamicTypeSize, appManager.appFontSize.getFontSize())
-        .fontWidth(appManager.appFontWidth.getFontWidth())
+        .tint(appPreferences.appTintColor.getColor())
+        .fontDesign(appPreferences.appFontDesign.getFontDesign())
+        .environment(\.dynamicTypeSize, appPreferences.appFontSize.getFontSize())
+        .fontWidth(appPreferences.appFontWidth.getFontWidth())
         .onAppear {
-            appManager.incrementNumberOfVisits()
+            appPreferences.incrementNumberOfVisits()
         }
     }
     

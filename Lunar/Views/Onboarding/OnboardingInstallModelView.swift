@@ -10,10 +10,13 @@ import os
 import SwiftUI
 
 struct OnboardingInstallModelView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var appPreferences: AppPreferences
+    @EnvironmentObject var modelSettings: ModelSettingsStore
+    @Environment(\.dismiss) private var dismiss
     @Environment(LLMEvaluator.self) var llm
     @State private var deviceSupportsMetal3: Bool = true
     @Binding var showOnboarding: Bool
+    var showsDismissButton = false
     @State var selectedModel = ModelConfiguration(id: "")
     @State private var hasUserSelected = false
     @State private var installingRepoId: String? = nil
@@ -25,7 +28,7 @@ struct OnboardingInstallModelView: View {
     }
 
     func installedSizeBadge(_ modelName: String) -> String? {
-        guard let gb = appManager.modelSizeGB(for: modelName) else { return nil }
+        guard let gb = modelSettings.modelSizeGB(for: modelName) else { return nil }
         return "\(formatSize(gb)) GB"
     }
 
@@ -36,45 +39,39 @@ struct OnboardingInstallModelView: View {
     var modelsList: some View {
         Form {
             Section {
-                VStack(spacing: 12) {
-                    Image(systemName: "arrow.down.circle.dotted")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 64, height: 64)
-                        .foregroundStyle(.primary, .tertiary)
+                VStack(spacing: 20) {
+                    Image(systemName: "icloud.and.arrow.down")
+                        .font(.system(size: 44))
+                        .foregroundStyle(.secondary)
 
-                    VStack(spacing: 4) {
-                        Text("install a model")
-                            .font(.title)
-                            .fontWeight(.semibold)
-                        Text("select from models that are optimized for apple silicon")
+                    Text("select from MLX models made for apple silicon that work with your RAM size")
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 4) {
+                        Text("RAM Size:")
                             .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                        HStack(spacing: 6) {
-                            Text("RAM Size:")
-                                .foregroundStyle(.secondary)
-                            Text("\(Int(appManager.availableMemory.rounded())) GB")
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .fill(.quaternary)
-                                )
-                        }
-                        .font(.subheadline)
+                        Text("\(Int(appPreferences.availableMemory.rounded())) GB")
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 2)
+                            .background(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .fill(.quaternary)
+                            )
                     }
+                    .font(.subheadline)
                 }
                 .padding(.vertical)
+                .padding(.horizontal, 32)
                 .frame(maxWidth: .infinity)
             }
             .listRowBackground(Color.clear)
 
-            if appManager.installedModels.count > 0 {
+            if appPreferences.installedModels.count > 0 {
                 Section(header: Text("installed")) {
-                    ForEach(appManager.installedModels, id: \.self) { modelName in
+                    ForEach(appPreferences.installedModels, id: \.self) { modelName in
                         Button {} label: {
                             Label {
-                                Text(appManager.modelDisplayName(modelName))
+                                Text(modelSettings.displayName(for: modelName))
                             } icon: {
                                 Image(systemName: "checkmark")
                                     .foregroundColor(.secondary)
@@ -144,7 +141,6 @@ struct OnboardingInstallModelView: View {
                     }
                 }
             }
-
         }
         .formStyle(.grouped)
     }
@@ -153,23 +149,6 @@ struct OnboardingInstallModelView: View {
         ZStack {
             if deviceSupportsMetal3 {
                 modelsList
-                .toolbar {
-                    if hasUserSelected {
-                        #if os(iOS)
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button { startInstall() } label: {
-                                Text("install").font(.headline)
-                            }
-                            .disabled(installingRepoId != nil)
-                        }
-                        #else
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("install") { startInstall() }
-                                .disabled(installingRepoId != nil)
-                        }
-                        #endif
-                    }
-                }
                 #if os(iOS)
                 .listStyle(.insetGrouped)
                 #endif
@@ -178,6 +157,36 @@ struct OnboardingInstallModelView: View {
                 }
             } else {
                 DeviceNotSupportedView()
+            }
+        }
+        .centeredSettingsPageTitle("install a model")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if hasUserSelected {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        startInstall()
+                    } label: {
+                        Group {
+                            if installingRepoId != nil {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("installing…")
+                                }
+                            } else {
+                                Text("install")
+                            }
+                        }
+                        .themedSettingsButtonContent()
+                    }
+                    #if os(macOS)
+                    .buttonStyle(.borderless)
+                    #endif
+                    .disabled(installingRepoId != nil)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.background)
+                }
             }
         }
         .onAppear {
@@ -191,17 +200,20 @@ struct OnboardingInstallModelView: View {
         Task {
             await llm.switchModel(model)
             await MainActor.run {
-                appManager.addInstalledModel(model.name)
-                appManager.currentModelName = model.name
+                appPreferences.addInstalledModel(model.name)
+                appPreferences.currentModelName = model.name
                 installingRepoId = nil
                 showOnboarding = false
+                if showsDismissButton {
+                    dismiss()
+                }
             }
         }
     }
 
     @ViewBuilder
     func ramFitIndicator(forSizeGB sizeGB: Double) -> some View {
-        let ratio = sizeGB / appManager.availableMemory
+        let ratio = sizeGB / appPreferences.availableMemory
         if ratio >= 0.8 {
             Image(systemName: "diamond.fill")
                 .foregroundStyle(.red)
@@ -222,7 +234,7 @@ struct OnboardingInstallModelView: View {
     }
 
     var groupedSuggestions: [(tier: Int, models: [SuggestedModel])] {
-        let ram = appManager.availableMemory
+        let ram = appPreferences.availableMemory
         let maxModelGB = ram * modelMemoryThreshold
         return SuggestedModelsCatalog.tiers
             .filter { Double($0) <= ram }
@@ -230,7 +242,7 @@ struct OnboardingInstallModelView: View {
                 let models = SuggestedModelsCatalog.all
                     .filter { $0.tierGB == tier }
                     .filter { $0.sizeGB <= maxModelGB }
-                    .filter { !appManager.installedModels.contains($0.repoId) }
+                    .filter { !appPreferences.installedModels.contains($0.repoId) }
                     .sorted { $0.sizeGB > $1.sizeGB }
                 return (tier, models)
             }
@@ -251,8 +263,9 @@ struct OnboardingInstallModelView: View {
 }
 
 #Preview {
-    @Previewable @State var appManager = AppManager()
+    @Previewable @State var appPreferences = AppPreferences()
 
     OnboardingInstallModelView(showOnboarding: .constant(true))
-        .environmentObject(appManager)
+        .environmentObject(appPreferences)
+        .environmentObject(ModelSettingsStore())
 }

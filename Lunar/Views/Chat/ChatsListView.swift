@@ -10,16 +10,26 @@ import SwiftData
 import SwiftUI
 
 struct ChatsListView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
     @Environment(\.dismiss) var dismiss
-    @Binding var currentThread: Thread?
+    @Bindable var chatSession: ChatSessionController
     @FocusState.Binding var isPromptFocused: Bool
     @Environment(\.modelContext) var modelContext
     @Query(sort: \Thread.timestamp, order: .reverse) var threads: [Thread]
-    @State var search = ""
-    @State var selection: Thread?
+    @State private var search = ""
+    @State private var selection: Thread?
 
     @Environment(\.requestReview) private var requestReview
+
+    private var filteredThreads: [Thread] {
+        let trimmedSearch = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedSearch.isEmpty else { return threads }
+        return threads.filter { thread in
+            thread.sortedMessages.contains { message in
+                message.content.localizedCaseInsensitiveContains(trimmedSearch)
+            }
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -34,8 +44,8 @@ struct ChatsListView: View {
                                 .lineLimit(1)
                                 .contentTransition(.opacity)
                                 .animation(.easeInOut(duration: 0.45), value: thread.title)
-                            .foregroundStyle(.primary)
-                            .font(.headline)
+                                .foregroundStyle(.primary)
+                                .font(.headline)
 
                             Text("\(thread.timestamp.formatted())")
                                 .foregroundStyle(.secondary)
@@ -59,6 +69,12 @@ struct ChatsListView: View {
                             .tag(thread)
                     }
                     .onDelete(perform: deleteThreads)
+                }
+                .onAppear {
+                    selection = chatSession.currentThread
+                }
+                .onChange(of: chatSession.currentThread?.id) {
+                    selection = chatSession.currentThread
                 }
                 .onChange(of: selection) {
                     setCurrentThread(selection)
@@ -92,7 +108,7 @@ struct ChatsListView: View {
             #endif
                 .toolbar {
                     #if os(iOS)
-                    if appManager.userInterfaceIdiom == .phone {
+                    if appPreferences.userInterfaceIdiom == .phone {
                         ToolbarItem(placement: .topBarLeading) {
                             Button(action: { dismiss() }) {
                                 Image(systemName: "xmark")
@@ -103,10 +119,7 @@ struct ChatsListView: View {
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: {
                             selection = nil
-                            // create new thread
                             setCurrentThread(nil)
-
-                            // ask for review if appropriate
                             requestReviewIfAppropriate()
                         }) {
                             Image(systemName: "plus")
@@ -117,10 +130,7 @@ struct ChatsListView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: {
                             selection = nil
-                            // create new thread
                             setCurrentThread(nil)
-
-                            // ask for review if appropriate
                             requestReviewIfAppropriate()
                         }) {
                             Label("new", systemImage: "plus")
@@ -130,8 +140,8 @@ struct ChatsListView: View {
                     #endif
                 }
         }
-        .tint(appManager.appTintColor.getColor())
-        .environment(\.dynamicTypeSize, appManager.appFontSize.getFontSize())
+        .tint(appPreferences.appTintColor.getColor())
+        .environment(\.dynamicTypeSize, appPreferences.appFontSize.getFontSize())
     }
 
     private func threadDisplayTitle(_ thread: Thread) -> String {
@@ -140,18 +150,10 @@ struct ChatsListView: View {
         return "untitled"
     }
 
-    var filteredThreads: [Thread] {
-        threads.filter { thread in
-            search.isEmpty || thread.messages.contains { message in
-                message.content.localizedCaseInsensitiveContains(search)
-            }
-        }
-    }
-
     func requestReviewIfAppropriate() {
-        if appManager.numberOfVisits - appManager.numberOfVisitsOfLastRequest >= 5 {
+        if appPreferences.numberOfVisits - appPreferences.numberOfVisitsOfLastRequest >= 5 {
             requestReview() // can only be prompted if the user hasn't given a review in the last year, so it will prompt again when apple deems appropriate
-            appManager.numberOfVisitsOfLastRequest = appManager.numberOfVisits
+            appPreferences.numberOfVisitsOfLastRequest = appPreferences.numberOfVisits
         }
     }
 
@@ -159,40 +161,39 @@ struct ChatsListView: View {
         for offset in offsets {
             let thread = threads[offset]
 
-            if let currentThread = currentThread {
-                if currentThread.id == thread.id {
-                    setCurrentThread(nil)
-                }
+            if let currentThread = chatSession.currentThread, currentThread.id == thread.id {
+                setCurrentThread(nil)
             }
 
-            // Adding a delay fixes a crash on iOS following a deletion
-            let delay = appManager.userInterfaceIdiom == .phone ? 1.0 : 0.0
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            let delay = appPreferences.userInterfaceIdiom == .phone ? 1_000_000_000 : 0
+            Task { @MainActor in
+                if delay > 0 {
+                    try? await Task.sleep(nanoseconds: UInt64(delay))
+                }
                 modelContext.delete(thread)
             }
         }
     }
 
     private func deleteThread(_ thread: Thread) {
-        if let currentThread = currentThread {
-            if currentThread.id == thread.id {
-                setCurrentThread(nil)
-            }
+        if let currentThread = chatSession.currentThread, currentThread.id == thread.id {
+            setCurrentThread(nil)
         }
         modelContext.delete(thread)
     }
 
     private func setCurrentThread(_ thread: Thread? = nil) {
-        currentThread = thread
+        chatSession.selectThread(thread)
         isPromptFocused = true
         #if os(iOS)
         dismiss()
         #endif
-        appManager.playHaptic()
+        appPreferences.playHaptic()
     }
 }
 
 #Preview {
     @FocusState var isPromptFocused: Bool
-    ChatsListView(currentThread: .constant(nil), isPromptFocused: $isPromptFocused)
+    ChatsListView(chatSession: ChatSessionController(), isPromptFocused: $isPromptFocused)
+        .environmentObject(AppPreferences())
 }

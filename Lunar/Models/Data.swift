@@ -8,7 +8,12 @@
 import SwiftUI
 import SwiftData
 
-class AppManager: ObservableObject {
+@MainActor
+final class AppPreferences: ObservableObject {
+    enum LayoutType {
+        case mac, phone, pad, unknown
+    }
+
     @AppStorage("systemPrompt") var systemPrompt = "you are a helpful assistant"
     @AppStorage("appTintColor") var appTintColor: AppTintColor = .monochrome
     @AppStorage("appFontDesign") var appFontDesign: AppFontDesign = .standard
@@ -20,200 +25,215 @@ class AppManager: ObservableObject {
     @AppStorage("shouldPlayHaptics") var shouldPlayHaptics = true
     @AppStorage("numberOfVisits") var numberOfVisits = 0
     @AppStorage("numberOfVisitsOfLastRequest") var numberOfVisitsOfLastRequest = 0
-    
-    var userInterfaceIdiom: LayoutType {
-        #if os(macOS)
-        return .mac
-        #elseif os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone
-        #else
-        return .unknown
-        #endif
-    }
-    
-    var availableMemory: Double {
-        let ramInBytes = ProcessInfo.processInfo.physicalMemory
-        let ramInGB = Double(ramInBytes) / (1024 * 1024 * 1024)
-        return ramInGB
-    }
-
-    enum LayoutType {
-        case mac, phone, pad, unknown
-    }
-        
-    private let installedModelsKey = "installedModels"
-    private let customHFModelsKey = "customHFModels"
-    private let modelBackendsKey = "modelBackends"
-    private let displayNameOverridesKey = "modelDisplayNameOverrides"
-    private let modelTemperatureKey = "modelTemperature"
-    private let modelTopKKey = "modelTopK"
-    private let modelTopPKey = "modelTopP"
-    private let modelContextWindowKey = "modelContextWindow"
-    private let modelReasoningEnabledKey = "modelReasoningEnabled"
-    private let modelPrefillStepSizeKey = "modelPrefillStepSize"
-    private let modelPromptCacheGBKey = "modelPromptCacheGB"
-    private let modelRAGEnabledKey = "modelRAGEnabled"
-
     @AppStorage("ragTopK") var ragTopK = 5
 
-    @Published var modelRAGEnabled: [String: Bool] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelRAGEnabled) {
-                UserDefaults.standard.set(data, forKey: modelRAGEnabledKey)
-            }
+    private let defaults: UserDefaults
+    private let installedModelsKey = "installedModels"
+    private let customHFModelsKey = "customHFModels"
+
+    @Published var installedModels: [String] = [] {
+        didSet { persist(installedModels, key: installedModelsKey) }
+    }
+
+    @Published var customHFModels: [String] = [] {
+        didSet { persist(customHFModels, key: customHFModelsKey) }
+    }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        installedModels = loadValue([String].self, forKey: installedModelsKey) ?? []
+        customHFModels = loadValue([String].self, forKey: customHFModelsKey) ?? []
+    }
+
+    var userInterfaceIdiom: LayoutType {
+        #if os(macOS)
+        .mac
+        #elseif os(iOS)
+        UIDevice.current.userInterfaceIdiom == .pad ? .pad : .phone
+        #else
+        .unknown
+        #endif
+    }
+
+    var availableMemory: Double {
+        Double(ProcessInfo.processInfo.physicalMemory) / 1_073_741_824.0
+    }
+
+    func addCustomHFModel(_ repoId: String) {
+        guard !customHFModels.contains(repoId) else { return }
+        customHFModels.append(repoId)
+    }
+
+    func incrementNumberOfVisits() {
+        numberOfVisits += 1
+    }
+
+    func playHaptic() {
+        guard shouldPlayHaptics else { return }
+        #if os(iOS)
+        let impact = UIImpactFeedbackGenerator(style: .soft)
+        impact.impactOccurred()
+        #endif
+    }
+
+    func addInstalledModel(_ model: String) {
+        guard !installedModels.contains(model) else { return }
+        installedModels.append(model)
+    }
+
+    func removeInstalledModel(_ model: String, settings: ModelSettingsStore) {
+        installedModels.removeAll { $0 == model }
+        customHFModels.removeAll { $0 == model }
+        settings.removeAll(for: model)
+        if currentModelName == model {
+            currentModelName = installedModels.first
         }
+        let dir = LunarHubDownloader.downloadBase.appendingPathComponent("models/\(model)")
+        try? FileManager.default.removeItem(at: dir)
+    }
+
+    func getMoonPhaseIcon() -> String {
+        let currentDate = Date()
+        let baseDate = Calendar.current.date(from: DateComponents(year: 2000, month: 1, day: 6))!
+        let daysSinceBaseDate = Calendar.current.dateComponents([.day], from: baseDate, to: currentDate).day!
+        let moonCycleLength = 29.53
+        let daysIntoCycle = Double(daysSinceBaseDate).truncatingRemainder(dividingBy: moonCycleLength)
+
+        switch daysIntoCycle {
+        case 0..<1.8457:
+            return "moonphase.new.moon"
+        case 1.8457..<5.536:
+            return "moonphase.waxing.crescent"
+        case 5.536..<9.228:
+            return "moonphase.first.quarter"
+        case 9.228..<12.919:
+            return "moonphase.waxing.gibbous"
+        case 12.919..<16.610:
+            return "moonphase.full.moon"
+        case 16.610..<20.302:
+            return "moonphase.waning.gibbous"
+        case 20.302..<23.993:
+            return "moonphase.last.quarter"
+        case 23.993..<27.684:
+            return "moonphase.waning.crescent"
+        default:
+            return "moonphase.new.moon"
+        }
+    }
+
+    private func persist<Value: Encodable>(_ value: Value, key: String) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    private func loadValue<Value: Decodable>(_ type: Value.Type, forKey key: String) -> Value? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
+    }
+}
+
+struct ModelGenerationSettings {
+    let systemPrompt: String
+    let temperature: Float
+    let topP: Float
+    let topK: Int
+    let reasoningEnabled: Bool
+    let backend: BackendKind
+}
+
+@MainActor
+final class ModelSettingsStore: ObservableObject {
+    private enum Keys {
+        static let modelBackends = "modelBackends"
+        static let displayNameOverrides = "modelDisplayNameOverrides"
+        static let modelTemperature = "modelTemperature"
+        static let modelTopK = "modelTopK"
+        static let modelTopP = "modelTopP"
+        static let modelContextWindow = "modelContextWindow"
+        static let modelReasoningEnabled = "modelReasoningEnabled"
+        static let modelPrefillStepSize = "modelPrefillStepSize"
+        static let modelPromptCacheGB = "modelPromptCacheGB"
+        static let modelRAGEnabled = "modelRAGEnabled"
+        static let modelSystemPrompts = "modelSystemPrompts"
+    }
+
+    private let defaults: UserDefaults
+
+    @Published var modelRAGEnabled: [String: Bool] = [:] {
+        didSet { persist(modelRAGEnabled, key: Keys.modelRAGEnabled) }
     }
 
     @Published var modelPrefillStepSize: [String: Int] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelPrefillStepSize) {
-                UserDefaults.standard.set(data, forKey: modelPrefillStepSizeKey)
-            }
-        }
+        didSet { persist(modelPrefillStepSize, key: Keys.modelPrefillStepSize) }
     }
 
     @Published var modelPromptCacheGB: [String: Int] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelPromptCacheGB) {
-                UserDefaults.standard.set(data, forKey: modelPromptCacheGBKey)
-            }
-        }
+        didSet { persist(modelPromptCacheGB, key: Keys.modelPromptCacheGB) }
     }
 
     @Published var modelReasoningEnabled: [String: Bool] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelReasoningEnabled) {
-                UserDefaults.standard.set(data, forKey: modelReasoningEnabledKey)
-            }
-        }
+        didSet { persist(modelReasoningEnabled, key: Keys.modelReasoningEnabled) }
     }
 
     @Published var modelContextWindow: [String: Int] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelContextWindow) {
-                UserDefaults.standard.set(data, forKey: modelContextWindowKey)
-            }
-        }
+        didSet { persist(modelContextWindow, key: Keys.modelContextWindow) }
     }
-    private let modelSystemPromptsKey = "modelSystemPrompts"
 
     @Published var modelSystemPrompts: [String: String] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelSystemPrompts) {
-                UserDefaults.standard.set(data, forKey: modelSystemPromptsKey)
-            }
-        }
+        didSet { persist(modelSystemPrompts, key: Keys.modelSystemPrompts) }
     }
 
     @Published var displayNameOverrides: [String: String] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(displayNameOverrides) {
-                UserDefaults.standard.set(data, forKey: displayNameOverridesKey)
-            }
-        }
+        didSet { persist(displayNameOverrides, key: Keys.displayNameOverrides) }
     }
 
     @Published var modelTemperature: [String: Float] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelTemperature) {
-                UserDefaults.standard.set(data, forKey: modelTemperatureKey)
-            }
-        }
+        didSet { persist(modelTemperature, key: Keys.modelTemperature) }
     }
 
     @Published var modelTopK: [String: Int] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelTopK) {
-                UserDefaults.standard.set(data, forKey: modelTopKKey)
-            }
-        }
+        didSet { persist(modelTopK, key: Keys.modelTopK) }
     }
 
     @Published var modelTopP: [String: Float] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelTopP) {
-                UserDefaults.standard.set(data, forKey: modelTopPKey)
-            }
-        }
+        didSet { persist(modelTopP, key: Keys.modelTopP) }
     }
 
-    @Published var installedModels: [String] = [] {
-        didSet { saveInstalledModelsToUserDefaults() }
-    }
-
-    /// HuggingFace repo IDs the user has added beyond the curated set.
-    @Published var customHFModels: [String] = [] {
-        didSet {
-            if let data = try? JSONEncoder().encode(customHFModels) {
-                UserDefaults.standard.set(data, forKey: customHFModelsKey)
-            }
-        }
-    }
-
-    /// Per-model backend selection. Key = model name (HF repo id).
     @Published var modelBackends: [String: String] = [:] {
-        didSet {
-            if let data = try? JSONEncoder().encode(modelBackends) {
-                UserDefaults.standard.set(data, forKey: modelBackendsKey)
-            }
-        }
+        didSet { persist(modelBackends, key: Keys.modelBackends) }
     }
 
-    init() {
-        loadInstalledModelsFromUserDefaults()
-        if let data = UserDefaults.standard.data(forKey: customHFModelsKey),
-           let decoded = try? JSONDecoder().decode([String].self, from: data) {
-            customHFModels = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelBackendsKey),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
-            modelBackends = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: displayNameOverridesKey),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
-            displayNameOverrides = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelTemperatureKey),
-           let decoded = try? JSONDecoder().decode([String: Float].self, from: data) {
-            modelTemperature = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelTopKKey),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            modelTopK = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelTopPKey),
-           let decoded = try? JSONDecoder().decode([String: Float].self, from: data) {
-            modelTopP = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelContextWindowKey),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            modelContextWindow = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelSystemPromptsKey),
-           let decoded = try? JSONDecoder().decode([String: String].self, from: data) {
-            modelSystemPrompts = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelReasoningEnabledKey),
-           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
-            modelReasoningEnabled = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelPrefillStepSizeKey),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            modelPrefillStepSize = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelPromptCacheGBKey),
-           let decoded = try? JSONDecoder().decode([String: Int].self, from: data) {
-            modelPromptCacheGB = decoded
-        }
-        if let data = UserDefaults.standard.data(forKey: modelRAGEnabledKey),
-           let decoded = try? JSONDecoder().decode([String: Bool].self, from: data) {
-            modelRAGEnabled = decoded
-        }
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        modelBackends = loadValue([String: String].self, forKey: Keys.modelBackends) ?? [:]
+        displayNameOverrides = loadValue([String: String].self, forKey: Keys.displayNameOverrides) ?? [:]
+        modelTemperature = loadValue([String: Float].self, forKey: Keys.modelTemperature) ?? [:]
+        modelTopK = loadValue([String: Int].self, forKey: Keys.modelTopK) ?? [:]
+        modelTopP = loadValue([String: Float].self, forKey: Keys.modelTopP) ?? [:]
+        modelContextWindow = loadValue([String: Int].self, forKey: Keys.modelContextWindow) ?? [:]
+        modelSystemPrompts = loadValue([String: String].self, forKey: Keys.modelSystemPrompts) ?? [:]
+        modelReasoningEnabled = loadValue([String: Bool].self, forKey: Keys.modelReasoningEnabled) ?? [:]
+        modelPrefillStepSize = loadValue([String: Int].self, forKey: Keys.modelPrefillStepSize) ?? [:]
+        modelPromptCacheGB = loadValue([String: Int].self, forKey: Keys.modelPromptCacheGB) ?? [:]
+        modelRAGEnabled = loadValue([String: Bool].self, forKey: Keys.modelRAGEnabled) ?? [:]
     }
 
-    func systemPrompt(for modelName: String) -> String {
-        if let p = modelSystemPrompts[modelName], !p.isEmpty { return p }
-        return systemPrompt
+    func generationSettings(for modelName: String, defaultSystemPrompt: String) -> ModelGenerationSettings {
+        ModelGenerationSettings(
+            systemPrompt: systemPrompt(for: modelName, default: defaultSystemPrompt),
+            temperature: temperature(for: modelName),
+            topP: topP(for: modelName),
+            topK: topK(for: modelName),
+            reasoningEnabled: isReasoningEnabled(for: modelName),
+            backend: backend(for: modelName)
+        )
+    }
+
+    func systemPrompt(for modelName: String, default defaultPrompt: String) -> String {
+        if let prompt = modelSystemPrompts[modelName], !prompt.isEmpty {
+            return prompt
+        }
+        return defaultPrompt
     }
 
     func setSystemPrompt(_ value: String, for modelName: String) {
@@ -228,6 +248,7 @@ class AppManager: ObservableObject {
     func topK(for modelName: String) -> Int { modelTopK[modelName] ?? 40 }
     func topP(for modelName: String) -> Float { modelTopP[modelName] ?? 1.0 }
     func contextWindow(for modelName: String) -> Int { modelContextWindow[modelName] ?? 4096 }
+
     func setTemperature(_ value: Float, for modelName: String) { modelTemperature[modelName] = value }
     func setTopK(_ value: Int, for modelName: String) { modelTopK[modelName] = value }
     func setTopP(_ value: Float, for modelName: String) { modelTopP[modelName] = value }
@@ -241,9 +262,6 @@ class AppManager: ObservableObject {
     func isRAGEnabled(for modelName: String) -> Bool { modelRAGEnabled[modelName] ?? false }
     func setRAGEnabled(_ value: Bool, for modelName: String) { modelRAGEnabled[modelName] = value }
 
-    /// Whether reasoning (think tags) is enabled for a model.
-    /// For suggested models, defaults to the catalog's `isReasoning` flag.
-    /// For custom HuggingFace models, defaults to `false`.
     func isReasoningEnabled(for modelName: String) -> Bool {
         if let override = modelReasoningEnabled[modelName] { return override }
         return SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false
@@ -261,17 +279,48 @@ class AppManager: ObservableObject {
         }
     }
 
+    func displayName(for modelName: String) -> String {
+        if let override = displayNameOverrides[modelName], !override.isEmpty {
+            return override
+        }
+        return modelName.replacingOccurrences(of: "mlx-community/", with: "").lowercased()
+    }
+
     func huggingFaceURL(for modelName: String) -> URL? {
         URL(string: "https://huggingface.co/\(modelName)")
     }
 
-    /// Returns the on-disk size of a downloaded model in GB, or the catalog size as fallback.
     func modelSizeGB(for modelName: String) -> Double? {
         let dir = LunarHubDownloader.downloadBase.appendingPathComponent("models/\(modelName)")
         if let bytes = directorySize(dir), bytes > 0 {
             return Double(bytes) / 1_073_741_824.0
         }
         return SuggestedModelsCatalog.first(matching: modelName)?.sizeGB
+    }
+
+    func backend(for modelName: String) -> BackendKind {
+        if let raw = modelBackends[modelName], let kind = BackendKind(rawValue: raw) {
+            return kind
+        }
+        return .mlxSwift
+    }
+
+    func setBackend(_ kind: BackendKind, for modelName: String) {
+        modelBackends[modelName] = kind.rawValue
+    }
+
+    func removeAll(for modelName: String) {
+        modelBackends.removeValue(forKey: modelName)
+        displayNameOverrides.removeValue(forKey: modelName)
+        modelTemperature.removeValue(forKey: modelName)
+        modelTopK.removeValue(forKey: modelName)
+        modelTopP.removeValue(forKey: modelName)
+        modelContextWindow.removeValue(forKey: modelName)
+        modelReasoningEnabled.removeValue(forKey: modelName)
+        modelPrefillStepSize.removeValue(forKey: modelName)
+        modelPromptCacheGB.removeValue(forKey: modelName)
+        modelRAGEnabled.removeValue(forKey: modelName)
+        modelSystemPrompts.removeValue(forKey: modelName)
     }
 
     private func directorySize(_ url: URL) -> Int64? {
@@ -289,115 +338,14 @@ class AppManager: ObservableObject {
         return total
     }
 
-    func backend(for modelName: String) -> BackendKind {
-        if let raw = modelBackends[modelName], let kind = BackendKind(rawValue: raw) {
-            return kind
-        }
-        return .mlxSwift
+    private func persist<Value: Encodable>(_ value: Value, key: String) {
+        guard let data = try? JSONEncoder().encode(value) else { return }
+        defaults.set(data, forKey: key)
     }
 
-    func setBackend(_ kind: BackendKind, for modelName: String) {
-        modelBackends[modelName] = kind.rawValue
-    }
-
-    func addCustomHFModel(_ repoId: String) {
-        if !customHFModels.contains(repoId) {
-            customHFModels.append(repoId)
-        }
-    }
-    
-    func incrementNumberOfVisits() {
-        numberOfVisits += 1
-        print("app visits: \(numberOfVisits)")
-    }
-    
-    // Function to save the array to UserDefaults as JSON
-    private func saveInstalledModelsToUserDefaults() {
-        if let jsonData = try? JSONEncoder().encode(installedModels) {
-            UserDefaults.standard.set(jsonData, forKey: installedModelsKey)
-        }
-    }
-    
-    // Function to load the array from UserDefaults
-    private func loadInstalledModelsFromUserDefaults() {
-        if let jsonData = UserDefaults.standard.data(forKey: installedModelsKey),
-           let decodedArray = try? JSONDecoder().decode([String].self, from: jsonData) {
-            self.installedModels = decodedArray
-        } else {
-            self.installedModels = [] // Default to an empty array if there's no data
-        }
-    }
-    
-    func playHaptic() {
-        if shouldPlayHaptics {
-            #if os(iOS)
-            let impact = UIImpactFeedbackGenerator(style: .soft)
-            impact.impactOccurred()
-            #endif
-        }
-    }
-    
-    func addInstalledModel(_ model: String) {
-        if !installedModels.contains(model) {
-            installedModels.append(model)
-        }
-    }
-
-    func removeInstalledModel(_ model: String) {
-        installedModels.removeAll { $0 == model }
-        customHFModels.removeAll { $0 == model }
-        modelBackends.removeValue(forKey: model)
-        modelReasoningEnabled.removeValue(forKey: model)
-        if currentModelName == model {
-            currentModelName = installedModels.first
-        }
-        // Best-effort: delete the model snapshot cache directory (~/.lunar/models/<repo>).
-        let dir = LunarHubDownloader.downloadBase.appendingPathComponent("models/\(model)")
-        try? FileManager.default.removeItem(at: dir)
-    }
-    
-    func modelDisplayName(_ modelName: String) -> String {
-        if let override = displayNameOverrides[modelName], !override.isEmpty {
-            return override
-        }
-        return modelName.replacingOccurrences(of: "mlx-community/", with: "").lowercased()
-    }
-    
-    func getMoonPhaseIcon() -> String {
-        // Get current date
-        let currentDate = Date()
-        
-        // Define a base date (known new moon date)
-        let baseDate = Calendar.current.date(from: DateComponents(year: 2000, month: 1, day: 6))!
-        
-        // Difference in days between the current date and the base date
-        let daysSinceBaseDate = Calendar.current.dateComponents([.day], from: baseDate, to: currentDate).day!
-        
-        // Moon phase repeats approximately every 29.53 days
-        let moonCycleLength = 29.53
-        let daysIntoCycle = Double(daysSinceBaseDate).truncatingRemainder(dividingBy: moonCycleLength)
-        
-        // Determine the phase based on how far into the cycle we are
-        switch daysIntoCycle {
-        case 0..<1.8457:
-            return "moonphase.new.moon" // New Moon
-        case 1.8457..<5.536:
-            return "moonphase.waxing.crescent" // Waxing Crescent
-        case 5.536..<9.228:
-            return "moonphase.first.quarter" // First Quarter
-        case 9.228..<12.919:
-            return "moonphase.waxing.gibbous" // Waxing Gibbous
-        case 12.919..<16.610:
-            return "moonphase.full.moon" // Full Moon
-        case 16.610..<20.302:
-            return "moonphase.waning.gibbous" // Waning Gibbous
-        case 20.302..<23.993:
-            return "moonphase.last.quarter" // Last Quarter
-        case 23.993..<27.684:
-            return "moonphase.waning.crescent" // Waning Crescent
-        default:
-            return "moonphase.new.moon" // New Moon (fallback)
-        }
+    private func loadValue<Value: Decodable>(_ type: Value.Type, forKey key: String) -> Value? {
+        guard let data = defaults.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
     }
 }
 

@@ -12,16 +12,16 @@ import SwiftUI
 import MLXLMCommon
 
 struct AddModelView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
+    @EnvironmentObject private var modelSettings: ModelSettingsStore
+    @Environment(\.dismiss) private var dismiss
     @Environment(LLMEvaluator.self) var llm
-    @Binding var isPresented: Bool
 
     @State private var pastedText: String = ""
     @State private var validating = false
     @State private var errorMessage: String?
     @State private var lastValidated: HFRepoInfo?
     @State private var installing = false
-    @State private var installProgress: Double = 0
     @State private var validationTask: Task<Void, Never>?
     @State private var installTask: Task<Void, Never>?
 
@@ -50,9 +50,6 @@ struct AddModelView: View {
                             .foregroundStyle(info.hasMLXLayout ? .green : .orange)
                         VStack(alignment: .leading) {
                             Text(info.repoId).font(.callout).bold()
-                            if let bytes = info.totalBytes {
-                                Text("≈ \(formatGB(bytes)) GB").font(.caption).foregroundStyle(.secondary)
-                            }
                             if !info.hasMLXLayout {
                                 Text("not an mlx-compatible repo").font(.caption).foregroundStyle(.orange)
                             }
@@ -65,60 +62,71 @@ struct AddModelView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        if validating {
+                    if validating {
+                        HStack(spacing: 8) {
                             ProgressView().controlSize(.small)
-                            Text("validating…").font(.caption).foregroundStyle(.secondary)
+                            Text("validating…")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        if installing {
+                    }
+
+                    if installing {
+                        HStack(spacing: 8) {
                             ProgressView(value: llm.progress)
                                 .progressViewStyle(.linear)
                                 .frame(maxWidth: .infinity)
                             Text("\(Int(llm.progress * 100))%")
                                 .font(.caption.monospacedDigit())
                                 .foregroundStyle(.secondary)
-                        } else {
-                            Spacer()
-                        }
-                        if installing {
-                            Button(role: .destructive) {
-                                installTask?.cancel()
-                            } label: {
-                                Text("cancel")
-                            }
-                        } else {
-                            Button("install") {
-                                installTask = Task { await install() }
-                            }
-                            .disabled(lastValidated?.hasMLXLayout != true)
                         }
                     }
                     if installing {
                         Text("models can take some time to download depending on your internet speed — please keep this window open")
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                    } else if let info = lastValidated, let bytes = info.totalBytes {
+                        Text("≈ \(formatGB(bytes)) GB on disk")
+                            .font(.caption)
+                            .foregroundStyle(Double(bytes) / 1_073_741_824.0 > totalRAMGB * 0.75 ? .orange : .secondary)
                     }
                 }
             }
-
         }
         .formStyle(.grouped)
-        .navigationTitle("add model")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .toolbar {
-            #if os(iOS)
-            ToolbarItem(placement: .topBarLeading) {
-                Button(action: { isPresented = false }) {
-                    Image(systemName: "xmark")
+        .centeredSettingsPageTitle("add model")
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if lastValidated?.hasMLXLayout == true {
+                VStack(spacing: 0) {
+                    Divider()
+                    Button {
+                        installTask = Task { await install() }
+                    } label: {
+                        Group {
+                            if installing {
+                                HStack(spacing: 8) {
+                                    ProgressView().controlSize(.small)
+                                    Text("installing…")
+                                }
+                            } else {
+                                Text("install")
+                            }
+                        }
+                        .themedSettingsButtonContent()
+                    }
+                    #if os(macOS)
+                    .buttonStyle(.borderless)
+                    #endif
+                    .disabled(installing)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, 12)
+                    .background(.background)
                 }
             }
-            #elseif os(macOS)
-            ToolbarItem(placement: .destructiveAction) {
-                Button("close") { isPresented = false }
-            }
-            #endif
+        }
+        .onDisappear {
+            validationTask?.cancel()
+            installTask?.cancel()
         }
     }
 
@@ -164,17 +172,17 @@ struct AddModelView: View {
         guard let info = lastValidated, info.hasMLXLayout else { return }
         installing = true
         defer { installing = false }
-        appManager.addCustomHFModel(info.repoId)
+        appPreferences.addCustomHFModel(info.repoId)
         let cfg = ModelConfiguration.getOrRegister(info.repoId)
         await llm.switchModel(cfg)
         if Task.isCancelled {
             // user hit cancel — roll back
-            appManager.removeInstalledModel(info.repoId)
+            appPreferences.removeInstalledModel(info.repoId, settings: modelSettings)
             return
         }
-        appManager.addInstalledModel(info.repoId)
-        appManager.currentModelName = info.repoId
-        isPresented = false
+        appPreferences.addInstalledModel(info.repoId)
+        appPreferences.currentModelName = info.repoId
+        dismiss()
     }
 
 }

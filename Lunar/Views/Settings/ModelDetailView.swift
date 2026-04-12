@@ -10,7 +10,8 @@
 import SwiftUI
 
 struct ModelDetailView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var appPreferences: AppPreferences
+    @EnvironmentObject var modelSettings: ModelSettingsStore
     @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -25,21 +26,21 @@ struct ModelDetailView: View {
                 HStack {
                     Text("display name")
                     Spacer()
-                    Text(appManager.modelDisplayName(modelName))
+                    Text(modelSettings.displayName(for: modelName))
                         .foregroundStyle(.secondary)
                     Button {
-                        renameDraft = appManager.modelDisplayName(modelName)
+                        renameDraft = modelSettings.displayName(for: modelName)
                         showRenameAlert = true
                     } label: {
                         Image(systemName: "pencil")
                     }
                     .buttonStyle(.borderless)
                 }
-                if let gb = appManager.modelSizeGB(for: modelName) {
+                if let gb = modelSettings.modelSizeGB(for: modelName) {
                     LabeledContent("size", value: "\(formatModelSize(gb)) GB")
                 }
                 LabeledContent("repo", value: modelName)
-                if let url = appManager.huggingFaceURL(for: modelName) {
+                if let url = modelSettings.huggingFaceURL(for: modelName) {
                     Button {
                         openURL(url)
                     } label: {
@@ -60,8 +61,8 @@ struct ModelDetailView: View {
 
             Section(header: Text("system prompt"), footer: Text("leave empty to use the universal prompt")) {
                 TextEditor(text: Binding(
-                    get: { appManager.modelSystemPrompts[modelName] ?? appManager.systemPrompt },
-                    set: { appManager.setSystemPrompt($0, for: modelName) }
+                    get: { modelSettings.modelSystemPrompts[modelName] ?? appPreferences.systemPrompt },
+                    set: { modelSettings.setSystemPrompt($0, for: modelName) }
                 ))
                 .textEditorStyle(.plain)
                 .frame(minHeight: 80)
@@ -70,28 +71,28 @@ struct ModelDetailView: View {
             if knowledgeBase.hasFolderConfigured {
                 Section(header: Text("knowledge base"), footer: Text("when enabled, the model will search your knowledge base for relevant context before answering.")) {
                     Toggle("knowledge base", isOn: Binding(
-                        get: { appManager.isRAGEnabled(for: modelName) },
-                        set: { appManager.setRAGEnabled($0, for: modelName) }
+                        get: { modelSettings.isRAGEnabled(for: modelName) },
+                        set: { modelSettings.setRAGEnabled($0, for: modelName) }
                     ))
                 }
             }
 
             Section(header: Text("reasoning"), footer: Text("enable to let the model think step-by-step using <think> tags. works with reasoning-capable models.")) {
                 Toggle("reasoning enabled", isOn: Binding(
-                    get: { appManager.isReasoningEnabled(for: modelName) },
-                    set: { appManager.setReasoningEnabled($0, for: modelName) }
+                    get: { modelSettings.isReasoningEnabled(for: modelName) },
+                    set: { modelSettings.setReasoningEnabled($0, for: modelName) }
                 ))
             }
 
             Section("model tweaks") {
                 let contextBinding = Binding<Double>(
-                    get: { Double(appManager.contextWindow(for: modelName)) },
-                    set: { appManager.setContextWindow(Int($0), for: modelName) }
+                    get: { Double(modelSettings.contextWindow(for: modelName)) },
+                    set: { modelSettings.setContextWindow(Int($0), for: modelName) }
                 )
                 VStack(alignment: .leading, spacing: 4) {
                     let tokens = Int(contextBinding.wrappedValue)
                     let est = estimatedRAMGB(forContext: tokens)
-                    let ratio = est / max(appManager.availableMemory, 0.001)
+                    let ratio = est / max(appPreferences.availableMemory, 0.001)
                     HStack(spacing: 4) {
                         Text("context window")
                         Spacer()
@@ -103,8 +104,8 @@ struct ModelDetailView: View {
                 }
 
                 let tempBinding = Binding<Double>(
-                    get: { Double(appManager.temperature(for: modelName)) },
-                    set: { appManager.setTemperature(Float($0), for: modelName) }
+                    get: { Double(modelSettings.temperature(for: modelName)) },
+                    set: { modelSettings.setTemperature(Float($0), for: modelName) }
                 )
                 VStack(alignment: .leading) {
                     HStack {
@@ -118,8 +119,8 @@ struct ModelDetailView: View {
                 }
 
                 let topKBinding = Binding<Double>(
-                    get: { Double(appManager.topK(for: modelName)) },
-                    set: { appManager.setTopK(Int($0), for: modelName) }
+                    get: { Double(modelSettings.topK(for: modelName)) },
+                    set: { modelSettings.setTopK(Int($0), for: modelName) }
                 )
                 VStack(alignment: .leading) {
                     HStack {
@@ -133,8 +134,8 @@ struct ModelDetailView: View {
                 }
 
                 let topPBinding = Binding<Double>(
-                    get: { Double(appManager.topP(for: modelName)) },
-                    set: { appManager.setTopP(Float($0), for: modelName) }
+                    get: { Double(modelSettings.topP(for: modelName)) },
+                    set: { modelSettings.setTopP(Float($0), for: modelName) }
                 )
                 VStack(alignment: .leading) {
                     HStack {
@@ -161,12 +162,12 @@ struct ModelDetailView: View {
                     .foregroundStyle(.secondary)
             }
 
-            if appManager.backend(for: modelName) == .pythonMLX {
+            if modelSettings.backend(for: modelName) == .pythonMLX {
                 Section(header: Text("python backend tuning"),
                         footer: Text("changes take effect on next server restart. larger prefill step sizes reduce time-to-first-token but use more peak memory.")) {
                     let prefillBinding = Binding<Double>(
-                        get: { Double(appManager.prefillStepSize(for: modelName)) },
-                        set: { appManager.setPrefillStepSize(Int($0), for: modelName) }
+                        get: { Double(modelSettings.prefillStepSize(for: modelName)) },
+                        set: { modelSettings.setPrefillStepSize(Int($0), for: modelName) }
                     )
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
@@ -180,14 +181,14 @@ struct ModelDetailView: View {
                     }
 
                     let cacheBinding = Binding<Double>(
-                        get: { Double(appManager.promptCacheGB(for: modelName)) },
-                        set: { appManager.setPromptCacheGB(Int($0), for: modelName) }
+                        get: { Double(modelSettings.promptCacheGB(for: modelName)) },
+                        set: { modelSettings.setPromptCacheGB(Int($0), for: modelName) }
                     )
                     VStack(alignment: .leading, spacing: 4) {
                         let cacheGB = Int(cacheBinding.wrappedValue)
-                        let weightsGB = appManager.modelSizeGB(for: modelName) ?? 1.0
+                        let weightsGB = modelSettings.modelSizeGB(for: modelName) ?? 1.0
                         let totalGB = weightsGB + Double(cacheGB)
-                        let ratio = totalGB / max(appManager.availableMemory, 0.001)
+                        let ratio = totalGB / max(appPreferences.availableMemory, 0.001)
                         HStack(spacing: 4) {
                             Text("prompt cache")
                             Spacer()
@@ -202,12 +203,11 @@ struct ModelDetailView: View {
             #endif
 
             Button(role: .destructive) {
-                appManager.removeInstalledModel(modelName)
+                appPreferences.removeInstalledModel(modelName, settings: modelSettings)
                 dismiss()
             } label: {
                 Label("delete model", systemImage: "trash")
-                    .foregroundStyle(.red)
-                    .frame(maxWidth: .infinity)
+                    .themedSettingsButtonContent(color: .red)
             }
             #if os(macOS)
             .buttonStyle(.borderless)
@@ -216,17 +216,17 @@ struct ModelDetailView: View {
             .listRowInsets(EdgeInsets())
         }
         .formStyle(.grouped)
-        .navigationTitle(appManager.modelDisplayName(modelName))
+        .centeredSettingsPageTitle(modelSettings.displayName(for: modelName))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .alert("rename model", isPresented: $showRenameAlert) {
             TextField("display name", text: $renameDraft)
             Button("save") {
-                appManager.setDisplayNameOverride(renameDraft, for: modelName)
+                modelSettings.setDisplayNameOverride(renameDraft, for: modelName)
             }
             Button("reset", role: .destructive) {
-                appManager.setDisplayNameOverride(nil, for: modelName)
+                modelSettings.setDisplayNameOverride(nil, for: modelName)
             }
             Button("cancel", role: .cancel) {}
         }
@@ -256,8 +256,8 @@ struct ModelDetailView: View {
 
     private var backendBinding: Binding<BackendKind> {
         Binding(
-            get: { appManager.backend(for: modelName) },
-            set: { appManager.setBackend($0, for: modelName) }
+            get: { modelSettings.backend(for: modelName) },
+            set: { modelSettings.setBackend($0, for: modelName) }
         )
     }
 }

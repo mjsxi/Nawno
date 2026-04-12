@@ -8,16 +8,16 @@
 import SwiftUI
 
 struct ChatsSettingsView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
     @Environment(\.modelContext) var modelContext
-    @State var systemPrompt = ""
-    @State var deleteAllChats = false
-    @Binding var currentThread: Thread?
+    @Bindable var chatSession: ChatSessionController
+    @State private var deleteAllChats = false
+    @State private var deleteError: String?
     
     var body: some View {
         Form {
             Section(header: Text("auto-title chats"), footer: Text("ask the model to summarize each chat into a short title after the second message.")) {
-                Picker(selection: $appManager.autoTitleDelay) {
+                Picker(selection: $appPreferences.autoTitleDelay) {
                     ForEach(AutoTitleDelay.allCases) { option in
                         Text(option.label).tag(option)
                     }
@@ -27,9 +27,9 @@ struct ChatsSettingsView: View {
                 .pickerStyle(.menu)
             }
 
-            if appManager.userInterfaceIdiom == .phone {
+            if appPreferences.userInterfaceIdiom == .phone {
                 Section {
-                    Toggle("haptics", isOn: $appManager.shouldPlayHaptics)
+                    Toggle("haptics", isOn: $appPreferences.shouldPlayHaptics)
                         .tint(.green)
                 }
             }
@@ -39,7 +39,7 @@ struct ChatsSettingsView: View {
                     deleteAllChats.toggle()
                 } label: {
                     Label("delete all chats", systemImage: "trash")
-                        .foregroundStyle(.red)
+                        .themedSettingsButtonContent(color: .red)
                 }
                 .alert("are you sure?", isPresented: $deleteAllChats) {
                     Button("cancel", role: .cancel) {
@@ -51,9 +51,17 @@ struct ChatsSettingsView: View {
                 }
                 .buttonStyle(.borderless)
             }
+
+            if let deleteError {
+                Section {
+                    Text(deleteError)
+                        .font(.caption)
+                        .foregroundStyle(.red)
+                }
+            }
         }
         .formStyle(.grouped)
-        .navigationTitle("chats")
+        .centeredSettingsPageTitle("chats")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -61,15 +69,16 @@ struct ChatsSettingsView: View {
     
     func deleteChats() {
         do {
-            currentThread = nil
+            chatSession.startNewChat()
             try modelContext.delete(model: Thread.self)
             try modelContext.delete(model: Message.self)
         } catch {
-            print("Failed to delete.")
+            deleteError = "couldn't delete chats: \(error.localizedDescription)"
         }
     }
 }
 
 #Preview {
-    ChatsSettingsView(currentThread: .constant(nil))
+    ChatsSettingsView(chatSession: ChatSessionController())
+        .environmentObject(AppPreferences())
 }

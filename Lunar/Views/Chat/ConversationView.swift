@@ -194,20 +194,24 @@ struct MessageView: View {
 
 struct ConversationView: View {
     @Environment(LLMEvaluator.self) var llm
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var appPreferences: AppPreferences
     let thread: Thread
     let generatingThreadID: UUID?
 
     @State private var scrollID: String?
     @State private var scrollInterrupted = false
-    @State private var streamStartedAt: Date?
     @State private var showStreamingBubble = false
+    @State private var streamingBubbleTask: Task<Void, Never>?
+
+    private var messages: [Message] {
+        thread.sortedMessages
+    }
 
     var body: some View {
         ScrollViewReader { scrollView in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: 0) {
-                    ForEach(thread.sortedMessages) { message in
+                    ForEach(messages) { message in
                         VStack(alignment: .leading, spacing: 12) {
                             MessageView(message: message)
                             if message.role == .assistant,
@@ -245,15 +249,15 @@ struct ConversationView: View {
                 .scrollTargetLayout()
             }
             .scrollPosition(id: $scrollID, anchor: .bottom)
-            .onChange(of: thread.sortedMessages.count) { _, _ in
+            .onChange(of: messages.count) { _, _ in
                 scrollInterrupted = false
                 withAnimation { scrollView.scrollTo("bottom") }
             }
             .onChange(of: llm.running) { _, isRunning in
+                streamingBubbleTask?.cancel()
                 if isRunning {
-                    streamStartedAt = Date()
                     showStreamingBubble = false
-                    Task {
+                    streamingBubbleTask = Task {
                         try? await Task.sleep(nanoseconds: 1_000_000_000)
                         if llm.running && thread.id == generatingThreadID {
                             showStreamingBubble = true
@@ -261,15 +265,14 @@ struct ConversationView: View {
                     }
                 } else {
                     showStreamingBubble = false
-                    streamStartedAt = nil
+                    if thread.id == generatingThreadID {
+                        appPreferences.playHaptic()
+                    }
                 }
             }
             .onChange(of: llm.output) { _, _ in
                 if showStreamingBubble && !scrollInterrupted {
                     scrollView.scrollTo("bottom")
-                }
-                if !llm.isThinking {
-                    appManager.playHaptic()
                 }
             }
             .onChange(of: showStreamingBubble) { _, visible in
@@ -282,6 +285,9 @@ struct ConversationView: View {
                     scrollInterrupted = true
                 }
             }
+            .onDisappear {
+                streamingBubbleTask?.cancel()
+            }
         }
         .defaultScrollAnchor(.bottom)
         #if os(iOS)
@@ -293,5 +299,5 @@ struct ConversationView: View {
 #Preview {
     ConversationView(thread: Thread(), generatingThreadID: nil)
         .environment(LLMEvaluator())
-        .environmentObject(AppManager())
+        .environmentObject(AppPreferences())
 }

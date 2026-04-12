@@ -18,6 +18,8 @@ enum LLMEvaluatorError: Error {
 @Observable
 @MainActor
 class LLMEvaluator {
+    @ObservationIgnored private var modelSettingsStore: ModelSettingsStore?
+
     var running = false
     var cancelled = false
     var output = ""
@@ -44,6 +46,14 @@ class LLMEvaluator {
 
     var modelConfiguration = ModelConfiguration.defaultModel
 
+    init(modelSettingsStore: ModelSettingsStore? = nil) {
+        self.modelSettingsStore = modelSettingsStore
+    }
+
+    func bind(modelSettingsStore: ModelSettingsStore) {
+        self.modelSettingsStore = modelSettingsStore
+    }
+
     func switchModel(_ model: ModelConfiguration) async {
         progress = 0.0 // reset progress
         loadState = .idle
@@ -53,7 +63,7 @@ class LLMEvaluator {
         MLX.Memory.clearCache()
 
         #if os(macOS)
-        if selectedBackend(for: model.name) == .pythonMLX {
+        if generationSettings(for: model.name, defaultSystemPrompt: "").backend == .pythonMLX {
             await loadPythonBackend(modelName: model.name)
             return
         }
@@ -71,27 +81,8 @@ class LLMEvaluator {
     let maxTokens = 4096
 
     private func generateParameters(for modelName: String) -> GenerateParameters {
-        let (temp, topP, _) = perModelParams(modelName)
-        return GenerateParameters(temperature: temp, topP: topP)
-    }
-
-    private func perModelParams(_ modelName: String) -> (Float, Float, Int) {
-        let temp = readFloatDict("modelTemperature")[modelName] ?? 0.5
-        let topP = readFloatDict("modelTopP")[modelName] ?? 1.0
-        let topK = readIntDict("modelTopK")[modelName] ?? 40
-        return (temp, topP, topK)
-    }
-
-    private func readFloatDict(_ key: String) -> [String: Float] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let dict = try? JSONDecoder().decode([String: Float].self, from: data) else { return [:] }
-        return dict
-    }
-
-    private func readIntDict(_ key: String) -> [String: Int] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let dict = try? JSONDecoder().decode([String: Int].self, from: data) else { return [:] }
-        return dict
+        let settings = generationSettings(for: modelName, defaultSystemPrompt: "")
+        return GenerateParameters(temperature: settings.temperature, topP: settings.topP)
     }
 
     /// update the display every N tokens -- 4 looks like it updates continuously
@@ -210,7 +201,7 @@ class LLMEvaluator {
         // Per-model backend routing. On macOS the user can pick MLX LM (Python)
         // for any installed model in Settings → Models → <model>.
         #if os(macOS)
-        if selectedBackend(for: modelName) == .pythonMLX {
+        if generationSettings(for: modelName, defaultSystemPrompt: effectiveSystemPrompt).backend == .pythonMLX {
             await runPythonBackend(modelName: modelName, thread: thread, systemPrompt: effectiveSystemPrompt)
             running = false
             return output
@@ -221,7 +212,7 @@ class LLMEvaluator {
             let modelContainer = try await load(modelName: modelName)
 
             // augment the prompt as needed
-            let reasoningEnabled = readReasoningEnabled(for: modelName)
+            let reasoningEnabled = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt).reasoningEnabled
             let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: effectiveSystemPrompt, reasoningEnabled: reasoningEnabled)
 
             if reasoningEnabled {
@@ -286,6 +277,7 @@ class LLMEvaluator {
             stat = " Tokens/second: \(String(format: "%.3f", tps))"
 
         } catch {
+            AppLogger.inference.error("generation failed for \(modelName, privacy: .public): \(error.localizedDescription, privacy: .public)")
             output = "Failed: \(error)"
         }
 
@@ -385,36 +377,22 @@ class LLMEvaluator {
                 return content
             }
         } catch {
-            print("[generateSilent] Python direct HTTP error: \(error.localizedDescription)")
+            AppLogger.pythonBackend.error("silent python generation failed for \(modelName, privacy: .public): \(error.localizedDescription, privacy: .public)")
         }
         return nil
     }
     #endif
 
-    private func readRAGEnabled(for modelName: String) -> Bool {
-        guard let data = UserDefaults.standard.data(forKey: "modelRAGEnabled"),
-              let dict = try? JSONDecoder().decode([String: Bool].self, from: data),
-              let value = dict[modelName] else { return false }
-        return value
-    }
-
-    private func readReasoningEnabled(for modelName: String) -> Bool {
-        if let data = UserDefaults.standard.data(forKey: "modelReasoningEnabled"),
-           let dict = try? JSONDecoder().decode([String: Bool].self, from: data),
-           let value = dict[modelName] {
-            return value
-        }
-        return SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false
-    }
-
-    private func selectedBackend(for modelName: String) -> BackendKind {
-        if let data = UserDefaults.standard.data(forKey: "modelBackends"),
-           let dict = try? JSONDecoder().decode([String: String].self, from: data),
-           let raw = dict[modelName],
-           let kind = BackendKind(rawValue: raw) {
-            return kind
-        }
-        return .mlxSwift
+    private func generationSettings(for modelName: String, defaultSystemPrompt: String) -> ModelGenerationSettings {
+        modelSettingsStore?.generationSettings(for: modelName, defaultSystemPrompt: defaultSystemPrompt)
+            ?? ModelGenerationSettings(
+                systemPrompt: defaultSystemPrompt,
+                temperature: 0.5,
+                topP: 1.0,
+                topK: 40,
+                reasoningEnabled: SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false,
+                backend: .mlxSwift
+            )
     }
 
     #if os(macOS)
@@ -461,8 +439,13 @@ class LLMEvaluator {
                 modelName: modelName,
                 messages: turns,
                 params: {
-                    let p = perModelParams(modelName)
-                    return GenerateParams(temperature: p.0, topP: p.1, topK: p.2, maxTokens: maxTokens)
+                    let settings = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt)
+                    return GenerateParams(
+                        temperature: settings.temperature,
+                        topP: settings.topP,
+                        topK: settings.topK,
+                        maxTokens: maxTokens
+                    )
                 }()
             )
             for try await chunk in stream {

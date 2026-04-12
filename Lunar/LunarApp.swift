@@ -14,9 +14,17 @@ struct LunarApp: App {
     #if os(macOS)
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     #endif
-    @StateObject var appManager = AppManager()
-    @StateObject var knowledgeBase = KnowledgeBaseIndex()
-    @State var llm = LLMEvaluator()
+    @StateObject private var appPreferences: AppPreferences
+    @StateObject private var modelSettings: ModelSettingsStore
+    @StateObject private var knowledgeBase = KnowledgeBaseIndex()
+    @State private var llm: LLMEvaluator
+
+    init() {
+        let modelSettings = ModelSettingsStore()
+        _appPreferences = StateObject(wrappedValue: AppPreferences())
+        _modelSettings = StateObject(wrappedValue: modelSettings)
+        _llm = State(wrappedValue: LLMEvaluator(modelSettingsStore: modelSettings))
+    }
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([Thread.self, Message.self])
@@ -41,11 +49,12 @@ struct LunarApp: App {
         WindowGroup {
             ContentView()
                 .modelContainer(sharedModelContainer)
-                .environmentObject(appManager)
+                .environmentObject(appPreferences)
+                .environmentObject(modelSettings)
                 .environmentObject(knowledgeBase)
                 .environment(llm)
                 .environment(DeviceStat())
-                .preferredColorScheme(appManager.appColorScheme.colorScheme)
+                .preferredColorScheme(appPreferences.appColorScheme.colorScheme)
                 .onAppear {
                     knowledgeBase.resolveBookmark()
                 }

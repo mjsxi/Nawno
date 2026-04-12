@@ -79,8 +79,7 @@ class KnowledgeBaseIndex: ObservableObject {
                         fileSize: fileSize
                     ))
                 } catch {
-                    // Skip files that can't be loaded
-                    print("[KnowledgeBase] Skipped \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    AppLogger.knowledgeBase.warning("skipped file \(fileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
                 indexProgress = Double(i + 1) / Double(files.count) * 0.5
             }
@@ -172,7 +171,7 @@ class KnowledgeBaseIndex: ObservableObject {
                         fileSize: fileSize
                     ))
                 } catch {
-                    print("[KnowledgeBase] Skipped \(fileURL.lastPathComponent): \(error.localizedDescription)")
+                    AppLogger.knowledgeBase.warning("skipped file \(fileURL.lastPathComponent, privacy: .public): \(error.localizedDescription, privacy: .public)")
                 }
                 indexProgress = Double(i + 1) / Double(filesToIndex.count) * 0.5
             }
