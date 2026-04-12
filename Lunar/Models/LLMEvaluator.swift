@@ -52,6 +52,9 @@ struct StreamedAssistantDisplay: Sendable {
 @MainActor
 class LLMEvaluator {
     @ObservationIgnored private var modelSettingsStore: ModelSettingsStore?
+    @ObservationIgnored private var inFlightModelLoad: Task<ModelContainer, Error>?
+    @ObservationIgnored private var inFlightModelLoadName: String?
+    @ObservationIgnored private var loadedModelName: String?
 
     var running = false
     var cancelled = false
@@ -95,6 +98,10 @@ class LLMEvaluator {
         progress = 0.0 // reset progress
         loadState = .idle
         modelConfiguration = model
+        loadedModelName = nil
+        inFlightModelLoad?.cancel()
+        inFlightModelLoad = nil
+        inFlightModelLoadName = nil
 
         // Release previous model memory before loading the new one
         MLX.Memory.clearCache()
@@ -152,6 +159,18 @@ class LLMEvaluator {
     func load(modelName: String) async throws -> ModelContainer {
         let model = ModelConfiguration.getOrRegister(modelName)
 
+        if case let .loaded(modelContainer) = loadState, loadedModelName == modelName {
+            lastLoadDuration = 0
+            return modelContainer
+        }
+
+        if let inFlightModelLoad, inFlightModelLoadName == modelName {
+            let waitStart = Date()
+            let modelContainer = try await inFlightModelLoad.value
+            lastLoadDuration = Date().timeIntervalSince(waitStart)
+            return modelContainer
+        }
+
         switch loadState {
         case .idle, .failed, .loadedPython:
             loadState = .loading
@@ -160,8 +179,8 @@ class LLMEvaluator {
             // limit the buffer cache
             MLX.Memory.cacheLimit = 20 * 1024 * 1024
 
-            do {
-                let modelContainer = try await LLMModelFactory.shared.loadContainer(
+            let loadTask = Task<ModelContainer, Error> {
+                try await LLMModelFactory.shared.loadContainer(
                     from: LunarHubDownloader(),
                     using: LunarTokenizerLoader(),
                     configuration: model,
@@ -173,41 +192,46 @@ class LLMEvaluator {
                         }
                     }
                 )
+            }
+            inFlightModelLoad = loadTask
+            inFlightModelLoadName = modelName
+
+            do {
+                let modelContainer = try await loadTask.value
                 modelInfo =
                     "Loaded \(modelConfiguration.id).  Weights: \(MLX.Memory.activeMemory / 1024 / 1024)M"
                 loadState = .loaded(modelContainer)
+                loadedModelName = modelName
                 lastLoadDuration = Date().timeIntervalSince(loadStart)
+                inFlightModelLoad = nil
+                inFlightModelLoadName = nil
                 return modelContainer
             } catch {
                 loadState = .failed
+                loadedModelName = nil
                 lastLoadDuration = Date().timeIntervalSince(loadStart)
+                inFlightModelLoad = nil
+                inFlightModelLoadName = nil
                 throw error
             }
 
         case .loading:
-            // Already loading — wait for it to finish
-            let waitStart = Date()
-            for _ in 0..<300 { // up to ~30s
-                try await Task.sleep(nanoseconds: 100_000_000)
-                if case let .loaded(modelContainer) = loadState {
-                    lastLoadDuration = Date().timeIntervalSince(waitStart)
-                    return modelContainer
-                }
-                if case .failed = loadState {
-                    // Previous load failed; reset and try again
-                    return try await load(modelName: modelName)
-                }
-                if case .idle = loadState {
-                    return try await load(modelName: modelName)
-                }
+            if let inFlightModelLoad, inFlightModelLoadName == modelName {
+                let waitStart = Date()
+                let modelContainer = try await inFlightModelLoad.value
+                lastLoadDuration = Date().timeIntervalSince(waitStart)
+                return modelContainer
             }
-            // Timed out waiting — reset and try fresh
             loadState = .idle
             return try await load(modelName: modelName)
 
         case let .loaded(modelContainer):
-            lastLoadDuration = 0
-            return modelContainer
+            if loadedModelName == modelName {
+                lastLoadDuration = 0
+                return modelContainer
+            }
+            loadState = .idle
+            return try await load(modelName: modelName)
         }
     }
 
@@ -538,15 +562,18 @@ class LLMEvaluator {
     /// before the user sends a message.
     private func loadPythonBackend(modelName: String) async {
         loadState = .loading
+        loadedModelName = nil
         let backend = BackendRouter.shared.backend(for: .pythonMLX)
         do {
             try await backend.load(modelName: modelName) { [weak self] p in
                 Task { @MainActor in self?.progress = p }
             }
             loadState = .loadedPython
+            loadedModelName = modelName
             modelInfo = "Loaded \(modelName) (Python)"
         } catch {
             loadState = .failed
+            loadedModelName = nil
             modelInfo = "Failed: \(error.localizedDescription)"
         }
     }
@@ -638,6 +665,11 @@ class LLMEvaluator {
         streamedAssistantPhase = update.display.phase
         streamedAssistantDisplay = update.display
         isThinking = update.display.phase == .thinkingInProgress
+        if update.display.phase == .thinkingInProgress, let startTime {
+            thinkingTime = Date().timeIntervalSince(startTime)
+        } else if update.display.phase == .thinkingComplete, let startTime, thinkingTime == nil {
+            thinkingTime = Date().timeIntervalSince(startTime)
+        }
     }
 
     #endif

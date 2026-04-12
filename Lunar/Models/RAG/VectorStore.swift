@@ -51,19 +51,33 @@ class VectorStore {
         manifest = IndexManifest()
     }
 
-    func search(query: [Float], topK: Int = 5) -> [DocumentChunk] {
-        guard !query.isEmpty else { return [] }
+    func replace(chunks newChunks: [DocumentChunk], manifest newManifest: IndexManifest) {
+        chunks = newChunks
+        manifest = newManifest
+    }
 
-        let scored = chunks.compactMap { chunk -> (DocumentChunk, Float)? in
-            guard !chunk.embedding.isEmpty else { return nil }
+    func search(query: [Float], topK: Int = 5) -> [DocumentChunk] {
+        guard !query.isEmpty, topK > 0 else { return [] }
+
+        var bestMatches: [(DocumentChunk, Float)] = []
+        bestMatches.reserveCapacity(topK)
+
+        for chunk in chunks {
+            guard !chunk.embedding.isEmpty else { continue }
             let sim = cosineSimilarity(query, chunk.embedding)
-            return (chunk, sim)
+            let insertIndex = bestMatches.firstIndex { sim > $0.1 } ?? bestMatches.endIndex
+
+            if insertIndex < topK {
+                bestMatches.insert((chunk, sim), at: insertIndex)
+                if bestMatches.count > topK {
+                    bestMatches.removeLast()
+                }
+            } else if bestMatches.count < topK {
+                bestMatches.append((chunk, sim))
+            }
         }
 
-        return scored
-            .sorted { $0.1 > $1.1 }
-            .prefix(topK)
-            .map { $0.0 }
+        return bestMatches.map(\.0)
     }
 
     // MARK: - Persistence

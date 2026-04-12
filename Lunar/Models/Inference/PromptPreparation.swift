@@ -14,10 +14,11 @@ struct ThreadSnapshot: Sendable {
 extension Thread {
     @MainActor
     func snapshot() -> ThreadSnapshot {
-        ThreadSnapshot(
+        let orderedMessages = orderedMessages()
+        return ThreadSnapshot(
             id: id,
             modelName: modelName,
-            messages: sortedMessages.map {
+            messages: orderedMessages.map {
                 ThreadMessageSnapshot(role: $0.role.rawValue, content: $0.content)
             }
         )

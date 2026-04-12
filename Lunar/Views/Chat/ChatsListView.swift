@@ -25,7 +25,7 @@ struct ChatsListView: View {
         let trimmedSearch = search.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedSearch.isEmpty else { return threads }
         return threads.filter { thread in
-            thread.sortedMessages.contains { message in
+            thread.messages.contains { message in
                 message.content.localizedCaseInsensitiveContains(trimmedSearch)
             }
         }
@@ -146,7 +146,7 @@ struct ChatsListView: View {
 
     private func threadDisplayTitle(_ thread: Thread) -> String {
         if let title = thread.title, !title.isEmpty { return title }
-        if let firstMessage = thread.sortedMessages.first { return firstMessage.content }
+        if let firstMessage = thread.firstMessageByTimestamp() { return firstMessage.content }
         return "untitled"
     }
 

@@ -214,7 +214,8 @@ final class ChatSessionController {
         guard let preferences,
               let delay = preferences.autoTitleDelay.seconds else { return }
         guard thread.title == nil || thread.title?.isEmpty == true else { return }
-        let userCount = thread.sortedMessages.filter { $0.role == .user }.count
+        let orderedMessages = thread.orderedMessages()
+        let userCount = orderedMessages.lazy.filter { $0.role == .user }.count
         guard userCount >= 2 else { return }
         guard titleTasks[thread.id] == nil else { return }
 
@@ -234,7 +235,8 @@ final class ChatSessionController {
               let llm,
               let modelContext else { return }
 
-        let convoText = thread.sortedMessages.map { msg -> String in
+        let orderedMessages = thread.orderedMessages()
+        let convoText = orderedMessages.map { msg -> String in
             let label = msg.role == .user ? "USER" : "ASSISTANT"
             return "\(label): \(msg.content)"
         }.joined(separator: "\n")

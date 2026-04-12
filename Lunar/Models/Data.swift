@@ -396,7 +396,15 @@ final class Thread {
     @Relationship var messages: [Message] = []
 
     var sortedMessages: [Message] {
-        return messages.sorted { $0.timestamp < $1.timestamp }
+        orderedMessages()
+    }
+
+    func orderedMessages() -> [Message] {
+        messages.sorted { $0.timestamp < $1.timestamp }
+    }
+
+    func firstMessageByTimestamp() -> Message? {
+        messages.min { $0.timestamp < $1.timestamp }
     }
 
     init(modelName: String? = nil) {

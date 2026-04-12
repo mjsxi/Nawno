@@ -62,6 +62,10 @@ struct ChatView: View {
         localhostServer.isLocked
     }
 
+    private var isShowingConversation: Bool {
+        chatSession.currentThread != nil
+    }
+
     private var knowledgeBaseToggle: some View {
         Button {
             chatSession.toggleRAGForCurrentChat()
@@ -222,18 +226,19 @@ struct ChatView: View {
                 chatInput
                     .padding()
             }
-            .background(
-                GeometryReader { geo in
-                    Image(.moon)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(width: 800)
-                        .opacity(chatSession.currentThread != nil ? 0.2 : 0.5)
-                        .animation(.easeInOut(duration: 0.5), value: chatSession.currentThread != nil)
-                        .rotationEffect(.degrees(moonRotation))
-                        .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
+            .background {
+                if !isShowingConversation {
+                    GeometryReader { geo in
+                        Image(.moon)
+                            .resizable()
+                            .aspectRatio(contentMode: .fit)
+                            .frame(width: 800)
+                            .opacity(0.5)
+                            .rotationEffect(.degrees(moonRotation))
+                            .position(x: geo.size.width / 2, y: geo.size.height * 0.85 + 100)
+                    }
                 }
-            )
+            }
             .overlay(alignment: .top) {
                 LinearGradient(
                     stops: [
@@ -250,9 +255,21 @@ struct ChatView: View {
             }
             .onAppear {
                 emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
-                moonRotation = 0
-                withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
-                    moonRotation = 360
+                if !isShowingConversation {
+                    moonRotation = 0
+                    withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
+                        moonRotation = 360
+                    }
+                }
+            }
+            .onChange(of: isShowingConversation) { _, isShowingConversation in
+                if isShowingConversation {
+                    moonRotation = 0
+                } else {
+                    emptyStatePhrase = ChatView.emptyStatePhrases.randomElement() ?? "Say something..."
+                    withAnimation(.linear(duration: 540).repeatForever(autoreverses: false)) {
+                        moonRotation = 360
+                    }
                 }
             }
             .navigationTitle(chatSession.chatTitle)

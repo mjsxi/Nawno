@@ -162,9 +162,6 @@ struct MessageView: View {
                             .contentShape(.rect)
                             .onTapGesture {
                                 collapsed.toggle()
-                                if isThinking {
-                                    llm.collapsed = collapsed
-                                }
                             }
                         }
 
@@ -198,16 +195,6 @@ struct MessageView: View {
 
             if message.role == .assistant { Spacer() }
         }
-        .onChange(of: llm.elapsedTime) {
-            if isThinking {
-                llm.thinkingTime = llm.elapsedTime
-            }
-        }
-        .onChange(of: isThinking) {
-            if llm.running {
-                llm.isThinking = isThinking
-            }
-        }
     }
 
     let platformBackgroundColor: Color = {
@@ -229,7 +216,7 @@ struct ConversationView: View {
     @State private var scrollInterrupted = false
 
     private var messages: [Message] {
-        thread.sortedMessages
+        thread.orderedMessages()
     }
 
     private var shouldShowStreamingBubble: Bool {

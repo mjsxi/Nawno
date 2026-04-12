@@ -19,6 +19,8 @@ struct ContentView: View {
     @State var showOnboarding = false
     @State var showSettings = false
     @State var showChats = false
+    @State private var didRunStartup = false
+    @State private var loadedModelName: String?
     @FocusState var isPromptFocused: Bool
 
     var body: some View {
@@ -36,24 +38,8 @@ struct ContentView: View {
                 ChatView(chatSession: chatSession, isPromptFocused: $isPromptFocused, showChats: $showChats, showSettings: $showSettings)
             }
         }
-        .task {
-            chatSession.configure(
-                preferences: appPreferences,
-                modelSettings: modelSettings,
-                knowledgeBase: knowledgeBase,
-                usageStats: usageStats,
-                llm: llm,
-                modelContext: modelContext
-            )
-            isPromptFocused = true
-        }
-        .task {
-            bootstrapUsageStatsIfNeeded()
-        }
         .task(id: appPreferences.currentModelName) {
-            if let modelName = appPreferences.currentModelName {
-                await llm.switchModel(named: modelName)
-            }
+            await performStartupAndModelSwitch()
         }
         .if(appPreferences.userInterfaceIdiom == .phone) { view in
             view
@@ -97,10 +83,40 @@ struct ContentView: View {
         isPromptFocused = true
     }
 
+    @MainActor
+    private func performStartupAndModelSwitch() async {
+        if !didRunStartup {
+            chatSession.configure(
+                preferences: appPreferences,
+                modelSettings: modelSettings,
+                knowledgeBase: knowledgeBase,
+                usageStats: usageStats,
+                llm: llm,
+                modelContext: modelContext
+            )
+            isPromptFocused = true
+            didRunStartup = true
+
+            Task(priority: .background) { @MainActor in
+                bootstrapUsageStatsIfNeeded()
+            }
+        }
+
+        guard let modelName = appPreferences.currentModelName,
+              loadedModelName != modelName else { return }
+
+        await llm.switchModel(named: modelName)
+        loadedModelName = modelName
+    }
+
     private func bootstrapUsageStatsIfNeeded() {
         guard !usageStats.hasBootstrappedFromMessages else { return }
 
-        let descriptor = FetchDescriptor<Message>()
+        let descriptor = FetchDescriptor<Message>(
+            predicate: #Predicate<Message> { message in
+                message.tokenCount != nil
+            }
+        )
         guard let messages = try? modelContext.fetch(descriptor) else { return }
         usageStats.bootstrapIfNeeded(from: messages)
     }
