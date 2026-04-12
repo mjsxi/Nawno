@@ -17,9 +17,10 @@ import Foundation
 final class PythonMLXBackend: InferenceBackend {
     private(set) var serverProcess: Process?
     private(set) var serverPort: Int?
-    private var loadedModelName: String?
+    private(set) var loadedModelName: String?
     private var currentTask: URLSessionDataTask?
     private var cancelled = false
+    private(set) var lastLoadDuration: TimeInterval = 0
 
     private var pythonPath: String {
         UserDefaults.standard.string(forKey: "pythonExecutablePath") ?? "/usr/bin/env"
@@ -36,7 +37,11 @@ final class PythonMLXBackend: InferenceBackend {
     private(set) var lastServerError: String?
 
     func load(modelName: String, progress: @Sendable @escaping (Double) -> Void) async throws {
-        if loadedModelName == modelName, serverProcess?.isRunning == true { return }
+        if loadedModelName == modelName, serverProcess?.isRunning == true {
+            lastLoadDuration = 0
+            return
+        }
+        let loadStart = Date()
         await stopServer()
         lastServerError = nil
 
@@ -84,6 +89,7 @@ final class PythonMLXBackend: InferenceBackend {
                               userInfo: [NSLocalizedDescriptionKey: message])
             }
             if (try? await ping(port: port)) == true {
+                lastLoadDuration = Date().timeIntervalSince(loadStart)
                 progress(1.0)
                 return
             }
@@ -169,6 +175,7 @@ final class PythonMLXBackend: InferenceBackend {
         serverProcess = nil
         serverPort = nil
         loadedModelName = nil
+        lastLoadDuration = 0
     }
 
     // MARK: - Auto-probe / install helpers

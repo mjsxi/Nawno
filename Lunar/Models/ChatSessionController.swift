@@ -128,10 +128,11 @@ final class ChatSessionController {
 
         preferences.playHaptic()
         persist(Message(role: .user, content: messageText, thread: thread), using: modelContext)
+        let snapshot = thread.snapshot()
 
         let output = await llm.generate(
             modelName: modelName,
-            thread: thread,
+            snapshot: snapshot,
             systemPrompt: modelSettings.systemPrompt(for: modelName, default: preferences.systemPrompt),
             knowledgeBase: isRAGActiveForChat ? knowledgeBase : nil
         )

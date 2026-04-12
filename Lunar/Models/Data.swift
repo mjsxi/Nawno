@@ -137,6 +137,7 @@ struct ModelGenerationSettings {
     let temperature: Float
     let topP: Float
     let topK: Int
+    let contextWindow: Int
     let reasoningEnabled: Bool
     let backend: BackendKind
 }
@@ -224,6 +225,7 @@ final class ModelSettingsStore: ObservableObject {
             temperature: temperature(for: modelName),
             topP: topP(for: modelName),
             topK: topK(for: modelName),
+            contextWindow: contextWindow(for: modelName),
             reasoningEnabled: isReasoningEnabled(for: modelName),
             backend: backend(for: modelName)
         )

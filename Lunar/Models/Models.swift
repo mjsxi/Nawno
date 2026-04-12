@@ -67,21 +67,7 @@ extension ModelConfiguration {
     // TODO: Remove this function when Jinja gets updated
     func formatForTokenizer(_ message: String, reasoningEnabled: Bool? = nil) -> String {
         let isReasoning = reasoningEnabled ?? (modelType == .reasoning)
-        if isReasoning {
-            let pattern = "<think>.*?(</think>|$)"
-            var result = message
-            do {
-                let regex = try NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
-                let range = NSRange(location: 0, length: result.utf16.count)
-                result = regex.stringByReplacingMatches(in: result, options: [], range: range, withTemplate: "")
-            } catch {}
-            // Strip orphaned </think> prefix (e.g. Qwen 3.5 omits opening <think>)
-            if let endRange = result.range(of: "</think>") {
-                result = String(result[endRange.upperBound...])
-            }
-            return " " + result.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-        return message
+        return PromptFormatter.formatForTokenizer(message, reasoningEnabled: isReasoning)
     }
 
     /// Returns the model's approximate size, in GB.

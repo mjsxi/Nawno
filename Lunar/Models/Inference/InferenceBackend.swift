@@ -9,7 +9,7 @@
 
 import Foundation
 
-public enum BackendKind: String, Codable, CaseIterable, Identifiable {
+public enum BackendKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case mlxSwift   // ml-explore/mlx-swift, in-process. iOS + macOS.
     case pythonMLX  // mlx_lm via Process + HTTP. macOS only.
 
@@ -31,7 +31,7 @@ public enum BackendKind: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-public struct GenerateParams {
+public struct GenerateParams: Sendable {
     public var temperature: Float = 0.5
     public var topP: Float = 1.0
     public var topK: Int = 40
@@ -44,7 +44,7 @@ public struct GenerateParams {
     }
 }
 
-public struct ChatTurn {
+public struct ChatTurn: Sendable {
     public let role: String   // "system" | "user" | "assistant"
     public let content: String
     public init(role: String, content: String) {

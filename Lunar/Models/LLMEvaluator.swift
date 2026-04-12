@@ -33,6 +33,7 @@ class LLMEvaluator {
     var lastTokensPerSecond: Double = 0
     var lastTokenCount: Int = 0
     var lastTimeToFirstToken: TimeInterval = 0
+    var lastLoadDuration: TimeInterval = 0
 
     var elapsedTime: TimeInterval? {
         if let startTime {
@@ -116,6 +117,7 @@ class LLMEvaluator {
         switch loadState {
         case .idle, .failed, .loadedPython:
             loadState = .loading
+            let loadStart = Date()
 
             // limit the buffer cache
             MLX.Memory.cacheLimit = 20 * 1024 * 1024
@@ -136,17 +138,21 @@ class LLMEvaluator {
                 modelInfo =
                     "Loaded \(modelConfiguration.id).  Weights: \(MLX.Memory.activeMemory / 1024 / 1024)M"
                 loadState = .loaded(modelContainer)
+                lastLoadDuration = Date().timeIntervalSince(loadStart)
                 return modelContainer
             } catch {
                 loadState = .failed
+                lastLoadDuration = Date().timeIntervalSince(loadStart)
                 throw error
             }
 
         case .loading:
             // Already loading — wait for it to finish
+            let waitStart = Date()
             for _ in 0..<300 { // up to ~30s
                 try await Task.sleep(nanoseconds: 100_000_000)
                 if case let .loaded(modelContainer) = loadState {
+                    lastLoadDuration = Date().timeIntervalSince(waitStart)
                     return modelContainer
                 }
                 if case .failed = loadState {
@@ -162,6 +168,7 @@ class LLMEvaluator {
             return try await load(modelName: modelName)
 
         case let .loaded(modelContainer):
+            lastLoadDuration = 0
             return modelContainer
         }
     }
@@ -171,38 +178,51 @@ class LLMEvaluator {
         cancelled = true
     }
 
-    func generate(modelName: String, thread: Thread, systemPrompt: String, knowledgeBase: KnowledgeBaseIndex? = nil) async -> String {
+    func generate(modelName: String, snapshot: ThreadSnapshot, systemPrompt: String, knowledgeBase: KnowledgeBaseIndex? = nil) async -> String {
         guard !running else { return "" }
 
         running = true
         cancelled = false
         output = ""
         startTime = Date()
+        thinkingTime = nil
+        isThinking = false
+        lastTokensPerSecond = 0
+        lastTokenCount = 0
+        lastTimeToFirstToken = 0
+        lastLoadDuration = 0
+        let requestStart = startTime ?? Date()
+        let settings = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt)
 
-        // Augment system prompt with knowledge base context if RAG is enabled
-        var effectiveSystemPrompt = systemPrompt
+        var ragResults: [DocumentChunk] = []
+        let ragStart = Date()
         if let kb = knowledgeBase, kb.hasIndex {
-            let lastUserMessage = thread.sortedMessages.last(where: { $0.role == .user })?.content ?? ""
+            let lastUserMessage = snapshot.messages.last(where: { $0.role == "user" })?.content ?? ""
             if !lastUserMessage.isEmpty {
                 let ragTopK = UserDefaults.standard.integer(forKey: "ragTopK")
                 let topK = ragTopK > 0 ? ragTopK : 5
-                let results = kb.query(lastUserMessage, topK: topK)
-                if !results.isEmpty {
-                    var ragContext = "\n\nUse the following reference material to help answer the user's question. If the reference material doesn't contain relevant information, say so.\n\n--- Reference Material ---"
-                    for chunk in results {
-                        ragContext += "\n\n[Source: \(chunk.fileName)]\n\(chunk.text)"
-                    }
-                    ragContext += "\n\n---"
-                    effectiveSystemPrompt += ragContext
-                }
+                ragResults = kb.query(lastUserMessage, topK: topK)
             }
         }
+        let preparedPrompt = await PromptPreparer.shared.prepare(
+            snapshot: snapshot,
+            systemPrompt: systemPrompt,
+            reasoningEnabled: settings.reasoningEnabled,
+            contextWindow: settings.contextWindow,
+            ragResults: ragResults,
+            ragQueryDuration: Date().timeIntervalSince(ragStart)
+        )
 
         // Per-model backend routing. On macOS the user can pick MLX LM (Python)
         // for any installed model in Settings → Models → <model>.
         #if os(macOS)
-        if generationSettings(for: modelName, defaultSystemPrompt: effectiveSystemPrompt).backend == .pythonMLX {
-            await runPythonBackend(modelName: modelName, thread: thread, systemPrompt: effectiveSystemPrompt)
+        if settings.backend == .pythonMLX {
+            await runPythonBackend(
+                modelName: modelName,
+                preparedPrompt: preparedPrompt,
+                settings: settings,
+                requestStart: requestStart
+            )
             running = false
             return output
         }
@@ -210,10 +230,10 @@ class LLMEvaluator {
 
         do {
             let modelContainer = try await load(modelName: modelName)
-
-            // augment the prompt as needed
-            let reasoningEnabled = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt).reasoningEnabled
-            let promptHistory = await modelContainer.configuration.getPromptHistory(thread: thread, systemPrompt: effectiveSystemPrompt, reasoningEnabled: reasoningEnabled)
+            let reasoningEnabled = settings.reasoningEnabled
+            let promptHistory = preparedPrompt.messages.map {
+                ["role": $0.role, "content": $0.content]
+            }
 
             if reasoningEnabled {
                 isThinking = true
@@ -239,6 +259,7 @@ class LLMEvaluator {
             var tokenCount = 0
             var tps: Double = 0
             var firstTokenTime: Date?
+            var firstVisibleTime: Date?
             var didInjectThinkTag = false
             streamLoop: for await event in stream {
                 if cancelled { break }
@@ -258,8 +279,11 @@ class LLMEvaluator {
                         }
                         break streamLoop
                     }
-                    if tokenCount % displayEveryNTokens == 0 {
+                    if tokenCount == 1 || tokenCount % displayEveryNTokens == 0 {
                         self.output = accumulated
+                        if firstVisibleTime == nil {
+                            firstVisibleTime = Date()
+                        }
                     }
                     if tokenCount >= maxTokens { break }
                 case .info(let info):
@@ -268,6 +292,9 @@ class LLMEvaluator {
                     break
                 }
             }
+            if firstVisibleTime == nil, !accumulated.isEmpty {
+                firstVisibleTime = Date()
+            }
             output = accumulated
             lastTokensPerSecond = tps
             lastTokenCount = tokenCount
@@ -275,6 +302,16 @@ class LLMEvaluator {
                 lastTimeToFirstToken = firstToken.timeIntervalSince(start)
             }
             stat = " Tokens/second: \(String(format: "%.3f", tps))"
+            logTiming(
+                modelName: modelName,
+                backend: settings.backend,
+                preparedPrompt: preparedPrompt,
+                requestStart: requestStart,
+                firstTokenTime: firstTokenTime,
+                firstVisibleTime: firstVisibleTime,
+                backendLoadTime: lastLoadDuration,
+                coldStart: lastLoadDuration > 0
+            )
 
         } catch {
             AppLogger.inference.error("generation failed for \(modelName, privacy: .public): \(error.localizedDescription, privacy: .public)")
@@ -390,6 +427,7 @@ class LLMEvaluator {
                 temperature: 0.5,
                 topP: 1.0,
                 topK: 40,
+                contextWindow: 4096,
                 reasoningEnabled: SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false,
                 backend: .mlxSwift
             )
@@ -420,33 +458,34 @@ class LLMEvaluator {
         await loadPythonBackend(modelName: modelConfiguration.name)
     }
 
-    private func runPythonBackend(modelName: String, thread: Thread, systemPrompt: String) async {
+    private func runPythonBackend(
+        modelName: String,
+        preparedPrompt: PreparedPrompt,
+        settings: ModelGenerationSettings,
+        requestStart: Date
+    ) async {
         if case .loadedPython = loadState {
             // Already pre-loaded; keep green indicator
         } else {
             loadState = .loading
         }
         let backend = BackendRouter.shared.backend(for: .pythonMLX)
-        var turns: [ChatTurn] = [ChatTurn(role: "system", content: systemPrompt)]
-        for m in thread.sortedMessages {
-            turns.append(ChatTurn(role: m.role.rawValue, content: m.content))
-        }
-        let streamStart = Date()
+        let coldStart = (backend as? PythonMLXBackend).map {
+            $0.loadedModelName != modelName || $0.serverProcess?.isRunning != true
+        } ?? false
         var firstTokenTime: Date?
+        var firstVisibleTime: Date?
         var tokenCount = 0
         do {
             let stream = backend.generate(
                 modelName: modelName,
-                messages: turns,
-                params: {
-                    let settings = generationSettings(for: modelName, defaultSystemPrompt: systemPrompt)
-                    return GenerateParams(
-                        temperature: settings.temperature,
-                        topP: settings.topP,
-                        topK: settings.topK,
-                        maxTokens: maxTokens
-                    )
-                }()
+                messages: preparedPrompt.messages,
+                params: GenerateParams(
+                    temperature: settings.temperature,
+                    topP: settings.topP,
+                    topK: settings.topK,
+                    maxTokens: maxTokens
+                )
             )
             for try await chunk in stream {
                 if cancelled { backend.cancel(); break }
@@ -456,16 +495,50 @@ class LLMEvaluator {
                 }
                 tokenCount += 1
                 self.output = chunk
+                if firstVisibleTime == nil {
+                    firstVisibleTime = Date()
+                }
             }
             if case .loading = loadState { loadState = .loadedPython }
         } catch {
             self.output = "Failed: \(error.localizedDescription)"
             loadState = .failed
         }
-        let elapsed = Date().timeIntervalSince(streamStart)
+        let elapsed = Date().timeIntervalSince(requestStart)
         lastTokenCount = tokenCount
         lastTokensPerSecond = elapsed > 0 ? Double(tokenCount) / elapsed : 0
-        lastTimeToFirstToken = firstTokenTime?.timeIntervalSince(streamStart) ?? 0
+        lastTimeToFirstToken = firstTokenTime?.timeIntervalSince(requestStart) ?? 0
+        logTiming(
+            modelName: modelName,
+            backend: settings.backend,
+            preparedPrompt: preparedPrompt,
+            requestStart: requestStart,
+            firstTokenTime: firstTokenTime,
+            firstVisibleTime: firstVisibleTime,
+            backendLoadTime: (backend as? PythonMLXBackend)?.lastLoadDuration ?? 0,
+            coldStart: coldStart
+        )
     }
+
     #endif
+
+    private func logTiming(
+        modelName: String,
+        backend: BackendKind,
+        preparedPrompt: PreparedPrompt,
+        requestStart: Date,
+        firstTokenTime: Date?,
+        firstVisibleTime: Date?,
+        backendLoadTime: TimeInterval,
+        coldStart: Bool
+    ) {
+        let ttft = firstTokenTime?.timeIntervalSince(requestStart) ?? 0
+        let firstVisible = firstVisibleTime?.timeIntervalSince(requestStart) ?? 0
+        let message = "timing model=\(modelName) backend=\(backend.rawValue) prompt=\(formatDuration(preparedPrompt.timing.total))s rag=\(formatDuration(preparedPrompt.timing.ragQuery))s load=\(formatDuration(backendLoadTime))s ttft=\(formatDuration(ttft))s firstVisible=\(formatDuration(firstVisible))s estPromptTokens=\(preparedPrompt.estimatedPromptTokens) droppedTurns=\(preparedPrompt.droppedMessageCount) ragChunks=\(preparedPrompt.includedRAGChunks) coldStart=\(coldStart)"
+        AppLogger.inference.info("\(message, privacy: .public)")
+    }
+
+    private func formatDuration(_ duration: TimeInterval) -> String {
+        String(format: "%.3f", duration)
+    }
 }

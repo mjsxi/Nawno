@@ -8,7 +8,7 @@
 import Foundation
 import NaturalLanguage
 
-struct DocumentChunk: Codable, Identifiable {
+struct DocumentChunk: Codable, Identifiable, Sendable {
     let id: UUID
     let fileName: String
     let chunkIndex: Int

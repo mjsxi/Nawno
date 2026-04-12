@@ -106,43 +106,50 @@ struct MessageView: View {
             if message.role == .user { Spacer() }
 
             if message.role == .assistant {
-                let (thinking, afterThink) = processThinkingContent(message.content)
-                VStack(alignment: .leading, spacing: 16) {
-                    if let thinking {
-                        VStack(alignment: .leading, spacing: 12) {
-                            thinkingLabel
-                            if !collapsed {
-                                if !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    HStack(spacing: 12) {
-                                        Capsule()
-                                            .frame(width: 2)
-                                            .padding(.vertical, 1)
-                                            .foregroundStyle(.fill)
-                                        Markdown(thinking)
-                                            .textSelection(.enabled)
-                                            .markdownTextStyle {
-                                                ForegroundColor(.secondary)
-                                            }
+                if message.content.isEmpty && llm.running {
+                    VStack(alignment: .leading, spacing: 16) {
+                        thinkingLabel
+                    }
+                    .padding(.trailing, 48)
+                } else {
+                    let (thinking, afterThink) = processThinkingContent(message.content)
+                    VStack(alignment: .leading, spacing: 16) {
+                        if let thinking {
+                            VStack(alignment: .leading, spacing: 12) {
+                                thinkingLabel
+                                if !collapsed {
+                                    if !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                        HStack(spacing: 12) {
+                                            Capsule()
+                                                .frame(width: 2)
+                                                .padding(.vertical, 1)
+                                                .foregroundStyle(.fill)
+                                            Markdown(thinking)
+                                                .textSelection(.enabled)
+                                                .markdownTextStyle {
+                                                    ForegroundColor(.secondary)
+                                                }
+                                        }
+                                        .padding(.leading, 5)
                                     }
-                                    .padding(.leading, 5)
+                                }
+                            }
+                            .contentShape(.rect)
+                            .onTapGesture {
+                                collapsed.toggle()
+                                if isThinking {
+                                    llm.collapsed = collapsed
                                 }
                             }
                         }
-                        .contentShape(.rect)
-                        .onTapGesture {
-                            collapsed.toggle()
-                            if isThinking {
-                                llm.collapsed = collapsed
-                            }
+
+                        if let afterThink {
+                            Markdown(afterThink)
+                                .textSelection(.enabled)
                         }
                     }
-
-                    if let afterThink {
-                        Markdown(afterThink)
-                            .textSelection(.enabled)
-                    }
+                    .padding(.trailing, 48)
                 }
-                .padding(.trailing, 48)
             } else {
                 Markdown(message.content)
                     .textSelection(.enabled)
@@ -200,11 +207,13 @@ struct ConversationView: View {
 
     @State private var scrollID: String?
     @State private var scrollInterrupted = false
-    @State private var showStreamingBubble = false
-    @State private var streamingBubbleTask: Task<Void, Never>?
 
     private var messages: [Message] {
         thread.sortedMessages
+    }
+
+    private var shouldShowStreamingBubble: Bool {
+        llm.running && thread.id == generatingThreadID
     }
 
     var body: some View {
@@ -233,7 +242,7 @@ struct ConversationView: View {
                         .id(message.id.uuidString)
                     }
 
-                    if showStreamingBubble && llm.running && !llm.output.isEmpty && thread.id == generatingThreadID {
+                    if shouldShowStreamingBubble {
                         MessageView(message: Message(role: .assistant, content: llm.output))
                             .frame(maxWidth: 550, alignment: .leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -254,29 +263,15 @@ struct ConversationView: View {
                 withAnimation { scrollView.scrollTo("bottom") }
             }
             .onChange(of: llm.running) { _, isRunning in
-                streamingBubbleTask?.cancel()
-                if isRunning {
-                    showStreamingBubble = false
-                    streamingBubbleTask = Task {
-                        try? await Task.sleep(nanoseconds: 1_000_000_000)
-                        if llm.running && thread.id == generatingThreadID {
-                            showStreamingBubble = true
-                        }
-                    }
-                } else {
-                    showStreamingBubble = false
-                    if thread.id == generatingThreadID {
-                        appPreferences.playHaptic()
-                    }
+                if isRunning && shouldShowStreamingBubble {
+                    scrollView.scrollTo("bottom")
+                }
+                if !isRunning && thread.id == generatingThreadID {
+                    appPreferences.playHaptic()
                 }
             }
             .onChange(of: llm.output) { _, _ in
-                if showStreamingBubble && !scrollInterrupted {
-                    scrollView.scrollTo("bottom")
-                }
-            }
-            .onChange(of: showStreamingBubble) { _, visible in
-                if visible {
+                if shouldShowStreamingBubble && !scrollInterrupted {
                     scrollView.scrollTo("bottom")
                 }
             }
@@ -284,9 +279,6 @@ struct ConversationView: View {
                 if llm.running {
                     scrollInterrupted = true
                 }
-            }
-            .onDisappear {
-                streamingBubbleTask?.cancel()
             }
         }
         .defaultScrollAnchor(.bottom)

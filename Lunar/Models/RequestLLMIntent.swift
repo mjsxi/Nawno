@@ -61,8 +61,9 @@ struct RequestLLMIntent: AppIntent {
             
             let message = Message(role: .user, content: prompt, thread: thread)
             thread.messages.append(message)
+            let snapshot = thread.snapshot()
             let effectiveSystemPrompt = modelSettings.systemPrompt(for: modelName, default: appPreferences.systemPrompt) + systemPrompt
-            var output = await llm.generate(modelName: modelName, thread: thread, systemPrompt: effectiveSystemPrompt)
+            var output = await llm.generate(modelName: modelName, snapshot: snapshot, systemPrompt: effectiveSystemPrompt)
             
             let maxCharacters = maxCharacters ?? .max
             
