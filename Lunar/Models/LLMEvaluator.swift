@@ -126,7 +126,13 @@ class LLMEvaluator {
 
     private func generateParameters(for modelName: String) -> GenerateParameters {
         let settings = generationSettings(for: modelName, defaultSystemPrompt: "")
-        return GenerateParameters(temperature: settings.temperature, topP: settings.topP)
+        return GenerateParameters(
+            maxTokens: settings.maxOutputTokens,
+            temperature: settings.temperature,
+            topP: settings.topP,
+            topK: settings.topK,
+            repetitionPenalty: settings.repetitionPenalty
+        )
     }
 
     /// update the display every N tokens -- 4 looks like it updates continuously
@@ -350,7 +356,7 @@ class LLMEvaluator {
                             firstVisibleTime = Date()
                         }
                     }
-                    if update.tokenCount >= maxTokens { break }
+                    if update.tokenCount >= settings.maxOutputTokens { break }
                 case .info(let info):
                     tps = info.tokensPerSecond
                 case .toolCall:
@@ -455,7 +461,13 @@ class LLMEvaluator {
 
         let modelContainer = try await load(modelName: modelName)
         let promptHistory = messages.map { ["role": $0.role, "content": $0.content] }
-        let parameters = GenerateParameters(temperature: params.temperature, topP: params.topP)
+        let parameters = GenerateParameters(
+            maxTokens: params.maxTokens,
+            temperature: params.temperature,
+            topP: params.topP,
+            topK: params.topK,
+            repetitionPenalty: params.repetitionPenalty
+        )
 
         return AsyncThrowingStream { continuation in
             Task { @MainActor in
@@ -551,6 +563,8 @@ class LLMEvaluator {
                 temperature: 0.5,
                 topP: 1.0,
                 topK: 40,
+                maxOutputTokens: 4096,
+                repetitionPenalty: nil,
                 contextWindow: 4096,
                 reasoningEnabled: SuggestedModelsCatalog.first(matching: modelName)?.isReasoning ?? false,
                 backend: .mlxSwift
@@ -616,7 +630,8 @@ class LLMEvaluator {
                     temperature: settings.temperature,
                     topP: settings.topP,
                     topK: settings.topK,
-                    maxTokens: maxTokens
+                    repetitionPenalty: settings.repetitionPenalty,
+                    maxTokens: settings.maxOutputTokens
                 )
             )
             for try await chunk in stream {

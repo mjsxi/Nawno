@@ -139,9 +139,107 @@ struct ModelGenerationSettings {
     let temperature: Float
     let topP: Float
     let topK: Int
+    let maxOutputTokens: Int
+    let repetitionPenalty: Float?
     let contextWindow: Int
     let reasoningEnabled: Bool
     let backend: BackendKind
+}
+
+enum ModelTuningPreset: String, CaseIterable, Identifiable {
+    case precise
+    case balanced
+    case code
+    case creative
+    case custom
+
+    struct Configuration {
+        let temperature: Float
+        let topP: Float
+        let topK: Int
+        let repetitionPenalty: Float
+        let maxOutputTokens: Int
+    }
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .precise:
+            return "precise"
+        case .balanced:
+            return "balanced"
+        case .code:
+            return "code"
+        case .creative:
+            return "creative"
+        case .custom:
+            return "custom"
+        }
+    }
+
+    var configuration: Configuration? {
+        switch self {
+        case .precise:
+            return Configuration(
+                temperature: 0.2,
+                topP: 0.9,
+                topK: 20,
+                repetitionPenalty: 1.15,
+                maxOutputTokens: 1024
+            )
+        case .balanced:
+            return Configuration(
+                temperature: 0.5,
+                topP: 1.0,
+                topK: 40,
+                repetitionPenalty: 1.05,
+                maxOutputTokens: 2048
+            )
+        case .code:
+            return Configuration(
+                temperature: 0.2,
+                topP: 0.95,
+                topK: 40,
+                repetitionPenalty: 1.02,
+                maxOutputTokens: 4096
+            )
+        case .creative:
+            return Configuration(
+                temperature: 0.9,
+                topP: 0.95,
+                topK: 80,
+                repetitionPenalty: 1.0,
+                maxOutputTokens: 4096
+            )
+        case .custom:
+            return nil
+        }
+    }
+
+    static func matching(
+        temperature: Float,
+        topP: Float,
+        topK: Int,
+        repetitionPenalty: Float,
+        maxOutputTokens: Int
+    ) -> ModelTuningPreset {
+        for preset in [ModelTuningPreset.precise, .balanced, .code, .creative] {
+            guard let configuration = preset.configuration else { continue }
+            if approximatelyEqual(temperature, configuration.temperature)
+                && approximatelyEqual(topP, configuration.topP)
+                && topK == configuration.topK
+                && approximatelyEqual(repetitionPenalty, configuration.repetitionPenalty)
+                && maxOutputTokens == configuration.maxOutputTokens {
+                return preset
+            }
+        }
+        return .custom
+    }
+
+    private static func approximatelyEqual(_ lhs: Float, _ rhs: Float) -> Bool {
+        abs(lhs - rhs) < 0.001
+    }
 }
 
 @MainActor
@@ -152,6 +250,8 @@ final class ModelSettingsStore: ObservableObject {
         static let modelTemperature = "modelTemperature"
         static let modelTopK = "modelTopK"
         static let modelTopP = "modelTopP"
+        static let modelMaxOutputTokens = "modelMaxOutputTokens"
+        static let modelRepetitionPenalty = "modelRepetitionPenalty"
         static let modelContextWindow = "modelContextWindow"
         static let modelReasoningEnabled = "modelReasoningEnabled"
         static let modelPrefillStepSize = "modelPrefillStepSize"
@@ -202,6 +302,14 @@ final class ModelSettingsStore: ObservableObject {
         didSet { persist(modelTopP, key: Keys.modelTopP) }
     }
 
+    @Published var modelMaxOutputTokens: [String: Int] = [:] {
+        didSet { persist(modelMaxOutputTokens, key: Keys.modelMaxOutputTokens) }
+    }
+
+    @Published var modelRepetitionPenalty: [String: Float] = [:] {
+        didSet { persist(modelRepetitionPenalty, key: Keys.modelRepetitionPenalty) }
+    }
+
     @Published var modelBackends: [String: String] = [:] {
         didSet { persist(modelBackends, key: Keys.modelBackends) }
     }
@@ -213,6 +321,8 @@ final class ModelSettingsStore: ObservableObject {
         modelTemperature = loadValue([String: Float].self, forKey: Keys.modelTemperature) ?? [:]
         modelTopK = loadValue([String: Int].self, forKey: Keys.modelTopK) ?? [:]
         modelTopP = loadValue([String: Float].self, forKey: Keys.modelTopP) ?? [:]
+        modelMaxOutputTokens = loadValue([String: Int].self, forKey: Keys.modelMaxOutputTokens) ?? [:]
+        modelRepetitionPenalty = loadValue([String: Float].self, forKey: Keys.modelRepetitionPenalty) ?? [:]
         modelContextWindow = loadValue([String: Int].self, forKey: Keys.modelContextWindow) ?? [:]
         modelSystemPrompts = loadValue([String: String].self, forKey: Keys.modelSystemPrompts) ?? [:]
         modelReasoningEnabled = loadValue([String: Bool].self, forKey: Keys.modelReasoningEnabled) ?? [:]
@@ -227,6 +337,8 @@ final class ModelSettingsStore: ObservableObject {
             temperature: temperature(for: modelName),
             topP: topP(for: modelName),
             topK: topK(for: modelName),
+            maxOutputTokens: maxOutputTokens(for: modelName),
+            repetitionPenalty: repetitionPenaltyValue(for: modelName),
             contextWindow: contextWindow(for: modelName),
             reasoningEnabled: isReasoningEnabled(for: modelName),
             backend: backend(for: modelName)
@@ -251,12 +363,51 @@ final class ModelSettingsStore: ObservableObject {
     func temperature(for modelName: String) -> Float { modelTemperature[modelName] ?? 0.5 }
     func topK(for modelName: String) -> Int { modelTopK[modelName] ?? 40 }
     func topP(for modelName: String) -> Float { modelTopP[modelName] ?? 1.0 }
+    func maxOutputTokens(for modelName: String) -> Int { modelMaxOutputTokens[modelName] ?? 4096 }
+    func repetitionPenalty(for modelName: String) -> Float { modelRepetitionPenalty[modelName] ?? 1.0 }
+    func repetitionPenaltyValue(for modelName: String) -> Float? {
+        let value = repetitionPenalty(for: modelName)
+        return abs(value - 1.0) < 0.001 ? nil : value
+    }
     func contextWindow(for modelName: String) -> Int { modelContextWindow[modelName] ?? 4096 }
 
     func setTemperature(_ value: Float, for modelName: String) { modelTemperature[modelName] = value }
     func setTopK(_ value: Int, for modelName: String) { modelTopK[modelName] = value }
     func setTopP(_ value: Float, for modelName: String) { modelTopP[modelName] = value }
+    func setMaxOutputTokens(_ value: Int, for modelName: String) {
+        if value == 4096 {
+            modelMaxOutputTokens.removeValue(forKey: modelName)
+        } else {
+            modelMaxOutputTokens[modelName] = value
+        }
+    }
+    func setRepetitionPenalty(_ value: Float, for modelName: String) {
+        if abs(value - 1.0) < 0.001 {
+            modelRepetitionPenalty.removeValue(forKey: modelName)
+        } else {
+            modelRepetitionPenalty[modelName] = value
+        }
+    }
     func setContextWindow(_ value: Int, for modelName: String) { modelContextWindow[modelName] = value }
+
+    func tuningPreset(for modelName: String) -> ModelTuningPreset {
+        ModelTuningPreset.matching(
+            temperature: temperature(for: modelName),
+            topP: topP(for: modelName),
+            topK: topK(for: modelName),
+            repetitionPenalty: repetitionPenalty(for: modelName),
+            maxOutputTokens: maxOutputTokens(for: modelName)
+        )
+    }
+
+    func apply(_ preset: ModelTuningPreset, to modelName: String) {
+        guard let configuration = preset.configuration else { return }
+        setTemperature(configuration.temperature, for: modelName)
+        setTopP(configuration.topP, for: modelName)
+        setTopK(configuration.topK, for: modelName)
+        setRepetitionPenalty(configuration.repetitionPenalty, for: modelName)
+        setMaxOutputTokens(configuration.maxOutputTokens, for: modelName)
+    }
 
     func prefillStepSize(for modelName: String) -> Int { modelPrefillStepSize[modelName] ?? 8192 }
     func promptCacheGB(for modelName: String) -> Int { modelPromptCacheGB[modelName] ?? 8 }
@@ -319,6 +470,8 @@ final class ModelSettingsStore: ObservableObject {
         modelTemperature.removeValue(forKey: modelName)
         modelTopK.removeValue(forKey: modelName)
         modelTopP.removeValue(forKey: modelName)
+        modelMaxOutputTokens.removeValue(forKey: modelName)
+        modelRepetitionPenalty.removeValue(forKey: modelName)
         modelContextWindow.removeValue(forKey: modelName)
         modelReasoningEnabled.removeValue(forKey: modelName)
         modelPrefillStepSize.removeValue(forKey: modelName)

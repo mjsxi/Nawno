@@ -35,11 +35,19 @@ public struct GenerateParams: Sendable {
     public var temperature: Float = 0.5
     public var topP: Float = 1.0
     public var topK: Int = 40
+    public var repetitionPenalty: Float?
     public var maxTokens: Int = 4096
-    public init(temperature: Float = 0.5, topP: Float = 1.0, topK: Int = 40, maxTokens: Int = 4096) {
+    public init(
+        temperature: Float = 0.5,
+        topP: Float = 1.0,
+        topK: Int = 40,
+        repetitionPenalty: Float? = nil,
+        maxTokens: Int = 4096
+    ) {
         self.temperature = temperature
         self.topP = topP
         self.topK = topK
+        self.repetitionPenalty = repetitionPenalty
         self.maxTokens = maxTokens
     }
 }

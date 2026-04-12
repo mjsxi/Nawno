@@ -126,7 +126,7 @@ final class PythonMLXBackend: InferenceBackend {
                     var req = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/v1/chat/completions")!)
                     req.httpMethod = "POST"
                     req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-                    let body: [String: Any] = [
+                    var body: [String: Any] = [
                         "model": modelName,
                         "messages": messages.map { ["role": $0.role, "content": $0.content] },
                         "temperature": params.temperature,
@@ -136,6 +136,9 @@ final class PythonMLXBackend: InferenceBackend {
                         "stop": ["<end_of_turn>", "<|im_end|>", "<|eot_id|>", "<|end|>"],
                         "stream": true
                     ]
+                    if let repetitionPenalty = params.repetitionPenalty {
+                        body["repetition_penalty"] = repetitionPenalty
+                    }
                     req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
                     let (bytes, _) = try await URLSession.shared.bytes(for: req)

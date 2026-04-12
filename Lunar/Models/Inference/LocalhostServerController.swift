@@ -219,14 +219,19 @@ final class LocalhostServerController: ObservableObject {
             )
         }
 
+        let generationSettings = modelSettings.generationSettings(
+            for: modelName,
+            defaultSystemPrompt: appPreferences.systemPrompt
+        )
         let messages = chatRequest.messages.map {
             ChatTurn(role: $0.role, content: $0.content.flattenedText)
         }
         let params = GenerateParams(
-            temperature: chatRequest.temperature ?? 0.5,
-            topP: chatRequest.top_p ?? 1.0,
-            topK: chatRequest.top_k ?? 40,
-            maxTokens: chatRequest.max_tokens ?? llm.maxTokens
+            temperature: chatRequest.temperature ?? generationSettings.temperature,
+            topP: chatRequest.top_p ?? generationSettings.topP,
+            topK: chatRequest.top_k ?? generationSettings.topK,
+            repetitionPenalty: chatRequest.repetition_penalty ?? generationSettings.repetitionPenalty,
+            maxTokens: chatRequest.max_tokens ?? generationSettings.maxOutputTokens
         )
 
         do {
@@ -650,6 +655,7 @@ private struct OpenAIChatCompletionRequest: Decodable {
     let temperature: Float?
     let top_p: Float?
     let top_k: Int?
+    let repetition_penalty: Float?
     let max_tokens: Int?
 }
 

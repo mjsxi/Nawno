@@ -58,7 +58,13 @@ final class MLXSwiftBackend: InferenceBackend {
                     self.cancelled = false
                     let history = messages.map { ["role": $0.role, "content": $0.content] }
                     MLXRandom.seed(UInt64(Date.timeIntervalSinceReferenceDate * 1000))
-                    let parameters = GenerateParameters(temperature: params.temperature, topP: params.topP)
+                    let parameters = GenerateParameters(
+                        maxTokens: params.maxTokens,
+                        temperature: params.temperature,
+                        topP: params.topP,
+                        topK: params.topK,
+                        repetitionPenalty: params.repetitionPenalty
+                    )
 
                     var accumulated = ""
                     let stream: AsyncStream<Generation> = try await container.perform { context in

@@ -95,6 +95,56 @@ struct LocalhostSettingsView: View {
             } footer: {
                 Text("when localhost serving is enabled, Lunar binds only to 127.0.0.1. the app must stay open, and chat generation plus model switching are disabled until you turn it off.")
             }
+
+            if let localhostModelName = localhostModelName {
+                Section {
+                    HStack {
+                        Text("preset")
+                        Spacer()
+                        Text(modelSettings.tuningPreset(for: localhostModelName).label)
+                            .foregroundStyle(.secondary)
+                    }
+                    HStack {
+                        Text("temperature")
+                        Spacer()
+                        Text(String(format: "%.2f", modelSettings.temperature(for: localhostModelName)))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("top K")
+                        Spacer()
+                        Text("\(modelSettings.topK(for: localhostModelName))")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("top P")
+                        Spacer()
+                        Text(String(format: "%.2f", modelSettings.topP(for: localhostModelName)))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("max output tokens")
+                        Spacer()
+                        Text("\(modelSettings.maxOutputTokens(for: localhostModelName))")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    HStack {
+                        Text("repeat penalty")
+                        Spacer()
+                        Text(String(format: "%.2f", modelSettings.repetitionPenalty(for: localhostModelName)))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                } header: {
+                    Text("localhost defaults")
+                } footer: {
+                    Text("these values are used by localhost requests when the client does not explicitly send its own generation parameters.")
+                }
+            }
         }
         .formStyle(.grouped)
         .centeredSettingsPageTitle("localhost")
@@ -134,6 +184,10 @@ struct LocalhostSettingsView: View {
 
     private var backendText: String {
         localhostServer.pinnedBackend?.displayName ?? "undefined"
+    }
+
+    private var localhostModelName: String? {
+        localhostServer.pinnedModelName ?? appPreferences.currentModelName
     }
 
     @ViewBuilder

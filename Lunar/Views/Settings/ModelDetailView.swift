@@ -86,6 +86,16 @@ struct ModelDetailView: View {
             }
 
             Section("model tweaks") {
+                let presetBinding = Binding<ModelTuningPreset>(
+                    get: { modelSettings.tuningPreset(for: modelName) },
+                    set: { modelSettings.apply($0, to: modelName) }
+                )
+                Picker("preset", selection: presetBinding) {
+                    ForEach(ModelTuningPreset.allCases) { preset in
+                        Text(preset.label).tag(preset)
+                    }
+                }
+
                 let contextBinding = Binding<Double>(
                     get: { Double(modelSettings.contextWindow(for: modelName)) },
                     set: { modelSettings.setContextWindow(Int($0), for: modelName) }
@@ -147,6 +157,36 @@ struct ModelDetailView: View {
                             .monospacedDigit()
                     }
                     Slider(value: topPBinding, in: 0...1, step: 0.01)
+                }
+
+                let maxOutputTokensBinding = Binding<Double>(
+                    get: { Double(modelSettings.maxOutputTokens(for: modelName)) },
+                    set: { modelSettings.setMaxOutputTokens(Int($0), for: modelName) }
+                )
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("max output tokens")
+                        Spacer()
+                        Text("\(Int(maxOutputTokensBinding.wrappedValue))")
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: maxOutputTokensBinding, in: 256...8192, step: 256)
+                }
+
+                let repetitionPenaltyBinding = Binding<Double>(
+                    get: { Double(modelSettings.repetitionPenalty(for: modelName)) },
+                    set: { modelSettings.setRepetitionPenalty(Float($0), for: modelName) }
+                )
+                VStack(alignment: .leading) {
+                    HStack {
+                        Text("repeat penalty")
+                        Spacer()
+                        Text(String(format: "%.2f", repetitionPenaltyBinding.wrappedValue))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                    }
+                    Slider(value: repetitionPenaltyBinding, in: 1.0...1.5, step: 0.01)
                 }
             }
 
