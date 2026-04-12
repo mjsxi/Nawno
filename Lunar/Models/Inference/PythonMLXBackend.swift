@@ -41,22 +41,10 @@ final class PythonMLXBackend: InferenceBackend {
         lastServerError = nil
 
         let port = Int.random(in: 49152...65535)
+        let modelSettings = ModelSettingsStore()
 
-        // Read per-model Python backend settings from UserDefaults.
-        let prefillStepSize: Int = {
-            if let data = UserDefaults.standard.data(forKey: "modelPrefillStepSize"),
-               let dict = try? JSONDecoder().decode([String: Int].self, from: data) {
-                return dict[modelName] ?? 8192
-            }
-            return 8192
-        }()
-        let cacheGB: Int = {
-            if let data = UserDefaults.standard.data(forKey: "modelPromptCacheGB"),
-               let dict = try? JSONDecoder().decode([String: Int].self, from: data) {
-                return dict[modelName] ?? 8
-            }
-            return 8
-        }()
+        let prefillStepSize = modelSettings.prefillStepSize(for: modelName)
+        let cacheGB = modelSettings.promptCacheGB(for: modelName)
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: pythonPath)
@@ -91,6 +79,7 @@ final class PythonMLXBackend: InferenceBackend {
                 }
                 lastServerError = tail
                 let message = tail ?? "mlx_lm.server exited before becoming ready"
+                AppLogger.pythonBackend.error("python backend exited early for \(modelName, privacy: .public): \(message, privacy: .public)")
                 throw NSError(domain: "PythonMLXBackend", code: 1,
                               userInfo: [NSLocalizedDescriptionKey: message])
             }
@@ -103,6 +92,7 @@ final class PythonMLXBackend: InferenceBackend {
         }
         proc.terminate()
         lastServerError = "Timed out waiting for mlx_lm.server (120s)"
+        AppLogger.pythonBackend.error("python backend timed out waiting for \(modelName, privacy: .public)")
         throw NSError(domain: "PythonMLXBackend", code: 2,
                       userInfo: [NSLocalizedDescriptionKey: "Timed out waiting for mlx_lm.server"])
     }
@@ -160,6 +150,7 @@ final class PythonMLXBackend: InferenceBackend {
                     }
                     continuation.finish()
                 } catch {
+                    AppLogger.pythonBackend.error("python streaming failed for \(modelName, privacy: .public): \(error.localizedDescription, privacy: .public)")
                     continuation.finish(throwing: error)
                 }
             }

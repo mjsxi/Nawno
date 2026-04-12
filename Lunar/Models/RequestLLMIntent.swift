@@ -40,11 +40,12 @@ struct RequestLLMIntent: AppIntent {
 
     @MainActor
     func perform() async throws -> some IntentResult & ReturnsValue<String> & ProvidesDialog {
-        let llm = LLMEvaluator()
-        let appManager = AppManager()
+        let modelSettings = ModelSettingsStore()
+        let llm = LLMEvaluator(modelSettingsStore: modelSettings)
+        let appPreferences = AppPreferences()
 
         if thread.modelName == nil {
-            thread.modelName = appManager.currentModelName
+            thread.modelName = appPreferences.currentModelName
         }
 
         if prompt.isEmpty {
@@ -55,12 +56,13 @@ struct RequestLLMIntent: AppIntent {
             }
         }
 
-        if let modelName = appManager.currentModelName {
+        if let modelName = appPreferences.currentModelName {
             _ = try? await llm.load(modelName: modelName)
             
             let message = Message(role: .user, content: prompt, thread: thread)
             thread.messages.append(message)
-            var output = await llm.generate(modelName: modelName, thread: thread, systemPrompt: appManager.systemPrompt(for: modelName) + systemPrompt)
+            let effectiveSystemPrompt = modelSettings.systemPrompt(for: modelName, default: appPreferences.systemPrompt) + systemPrompt
+            var output = await llm.generate(modelName: modelName, thread: thread, systemPrompt: effectiveSystemPrompt)
             
             let maxCharacters = maxCharacters ?? .max
             

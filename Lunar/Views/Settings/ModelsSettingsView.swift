@@ -9,37 +9,32 @@ import SwiftUI
 import MLXLMCommon
 
 struct ModelsSettingsView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject private var appPreferences: AppPreferences
+    @EnvironmentObject private var modelSettings: ModelSettingsStore
     @Environment(LLMEvaluator.self) var llm
-    @State var showOnboardingInstallModelView = false
-    @State var showAddModelView = false
 
     var body: some View {
         Form {
             Section(header: Text("add model")) {
-                Button {
-                    showOnboardingInstallModelView.toggle()
+                NavigationLink {
+                    OnboardingInstallModelView(showOnboarding: .constant(false), showsDismissButton: true)
                 } label: {
                     Label("install a model", systemImage: "arrow.down.circle.dotted")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .tint(.primary)
-                #if os(macOS)
-                .buttonStyle(.borderless)
-                #endif
 
-                Button {
-                    showAddModelView = true
+                NavigationLink {
+                    AddModelView()
                 } label: {
                     Label("add from huggingface…", systemImage: "plus.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .tint(.primary)
-                #if os(macOS)
-                .buttonStyle(.borderless)
-                #endif
             }
 
-            Section(header: Text(appManager.installedModels.count == 1 ? "installed model" : "installed models")) {
-                ForEach(appManager.installedModels, id: \.self) { modelName in
+            Section(header: Text(appPreferences.installedModels.count == 1 ? "installed model" : "installed models")) {
+                ForEach(appPreferences.installedModels, id: \.self) { modelName in
                     NavigationLink {
                         ModelDetailView(modelName: modelName)
                     } label: {
@@ -48,9 +43,9 @@ struct ModelsSettingsView: View {
                                 Task { await switchModel(modelName) }
                             } label: {
                                 HStack {
-                                    Image(systemName: appManager.currentModelName == modelName ? "checkmark.circle.fill" : "circle")
-                                        .foregroundColor(appManager.currentModelName == modelName ? .appAccent : .primary)
-                                    Text(appManager.modelDisplayName(modelName))
+                                    Image(systemName: appPreferences.currentModelName == modelName ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(appPreferences.currentModelName == modelName ? .appAccent : .primary)
+                                    Text(modelSettings.displayName(for: modelName))
                                 }
                             }
                             .tint(.primary)
@@ -64,7 +59,7 @@ struct ModelsSettingsView: View {
                     }
                     .contextMenu {
                         Button(role: .destructive) {
-                            appManager.removeInstalledModel(modelName)
+                            appPreferences.removeInstalledModel(modelName, settings: modelSettings)
                         } label: {
                             Label("delete", systemImage: "trash")
                         }
@@ -72,7 +67,7 @@ struct ModelsSettingsView: View {
                 }
                 .onDelete { offsets in
                     for i in offsets {
-                        appManager.removeInstalledModel(appManager.installedModels[i])
+                        appPreferences.removeInstalledModel(appPreferences.installedModels[i], settings: modelSettings)
                     }
                 }
             }
@@ -87,48 +82,17 @@ struct ModelsSettingsView: View {
         }
         .formStyle(.grouped)
         .task {
-            for name in appManager.installedModels {
+            for name in appPreferences.installedModels {
                 _ = ModelConfiguration.getOrRegister(name)
             }
         }
-        .navigationTitle("models")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .sheet(isPresented: $showAddModelView) {
-            NavigationStack {
-                AddModelView(isPresented: $showAddModelView)
-                    .environmentObject(appManager)
-                    .environment(llm)
-            }
-        }
-        .sheet(isPresented: $showOnboardingInstallModelView) {
-            NavigationStack {
-                OnboardingInstallModelView(showOnboarding: $showOnboardingInstallModelView)
-                    .environment(llm)
-                    .toolbar {
-                        #if os(iOS)
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button(action: { showOnboardingInstallModelView = false }) {
-                                Image(systemName: "xmark")
-                            }
-                        }
-                        #elseif os(macOS)
-                        ToolbarItem(placement: .destructiveAction) {
-                            Button(action: { showOnboardingInstallModelView = false }) {
-                                Text("close")
-                            }
-                        }
-                        #endif
-                }
-            }
-        }
+        .centeredSettingsPageTitle("models")
     }
     
     private func switchModel(_ modelName: String) async {
         let model = ModelConfiguration.getOrRegister(modelName)
-        appManager.currentModelName = modelName
-        appManager.playHaptic()
+        appPreferences.currentModelName = modelName
+        appPreferences.playHaptic()
         await llm.switchModel(model)
     }
 }

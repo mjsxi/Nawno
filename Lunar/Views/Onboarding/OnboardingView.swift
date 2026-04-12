@@ -32,7 +32,7 @@ struct OnboardingView: View {
                 }
                 
                 Spacer()
-                                
+
                 VStack(alignment: .leading, spacing: 24) {
                     Label {
                         VStack(alignment: .leading) {
@@ -50,7 +50,7 @@ struct OnboardingView: View {
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 8)
                     }
-                    
+
                     Label {
                         VStack(alignment: .leading) {
                             Text("private")
@@ -67,7 +67,7 @@ struct OnboardingView: View {
                             .foregroundStyle(.secondary)
                             .padding(.trailing, 8)
                     }
-                    
+
                     Label {
                         VStack(alignment: .leading) {
                             Text("open source")

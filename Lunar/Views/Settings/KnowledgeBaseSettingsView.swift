@@ -11,7 +11,7 @@ import UniformTypeIdentifiers
 #endif
 
 struct KnowledgeBaseSettingsView: View {
-    @EnvironmentObject var appManager: AppManager
+    @EnvironmentObject var appPreferences: AppPreferences
     @EnvironmentObject var knowledgeBase: KnowledgeBaseIndex
     @State private var showPurgeConfirmation = false
     #if os(iOS)
@@ -23,6 +23,7 @@ struct KnowledgeBaseSettingsView: View {
             if let url = knowledgeBase.folderURL {
                 Section(header: Text("folder"), footer: Text("select a folder containing your writing and documents. supported formats: .txt, .md, .pdf, .rtf")) {
                     LabeledContent("path", value: url.lastPathComponent)
+
                     HStack(spacing: 12) {
                         Button {
                             pickFolder()
@@ -47,11 +48,15 @@ struct KnowledgeBaseSettingsView: View {
                 Section(header: Text("folder"), footer: Text("select a folder containing your writing and documents. supported formats: .txt, .md, .pdf, .rtf")) {
                     Button {
                         pickFolder()
-                    } label: {
-                        Text("select folder")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.bordered)
+                        } label: {
+                            Text("select folder")
+                                .themedSettingsButtonContent()
+                        }
+                    #if os(macOS)
+                    .buttonStyle(.borderless)
+                    #endif
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
                 }
             }
 
@@ -111,15 +116,14 @@ struct KnowledgeBaseSettingsView: View {
 
                 if knowledgeBase.hasIndex {
                     Section(header: Text("retrieval"), footer: Text("how many chunks of your writing to include as context. more chunks means more context for the model, but uses more of its context window.")) {
-                        Stepper("context chunks: \(appManager.ragTopK)", value: $appManager.ragTopK, in: 1...20)
+                        Stepper("context chunks: \(appPreferences.ragTopK)", value: $appPreferences.ragTopK, in: 1...20)
                     }
 
                     Button(role: .destructive) {
                         showPurgeConfirmation = true
                     } label: {
                         Label("purge knowledge base", systemImage: "trash")
-                            .foregroundStyle(.red)
-                            .frame(maxWidth: .infinity)
+                            .themedSettingsButtonContent(color: .red)
                     }
                     #if os(macOS)
                     .buttonStyle(.borderless)
@@ -130,9 +134,8 @@ struct KnowledgeBaseSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("knowledge base")
+        .centeredSettingsPageTitle("knowledge base")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showDocumentPicker) {
             FolderPicker { url in
                 knowledgeBase.setFolder(url)
