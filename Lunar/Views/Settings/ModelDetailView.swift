@@ -199,7 +199,7 @@ struct ModelDetailView: View {
                 }
                 .pickerStyle(.inline)
                 .disabled(localhostServer.isLocked)
-                Text("MLX Swift runs in-process. MLX LM (Python) launches `mlx_lm.server` as a subprocess and streams over its OpenAI-compatible API. Configure the python path under Models → Python backend settings.")
+                Text("MLX Swift runs in-process. MLX LM (Python) launches `mlx_lm.server` as a subprocess and streams over its OpenAI-compatible API. Configure the python path under Models → Backend settings.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

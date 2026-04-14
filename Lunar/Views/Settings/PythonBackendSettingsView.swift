@@ -10,6 +10,14 @@
 import SwiftUI
 import AppKit
 
+private enum BundledSwiftBackendInfo {
+    // Keep this in sync with the repo's Package.resolved when updating MLX packages.
+    static let mlxSwiftVersion = "0.31.3"
+    static let mlxSwiftRevision = "61b9e011"
+    static let mlxSwiftLMRef = "main"
+    static let mlxSwiftLMRevision = "7d9a6ab3"
+}
+
 struct PythonBackendSettingsView: View {
     @State private var status: PythonProbeStatus?
     @State private var installing = false
@@ -20,6 +28,8 @@ struct PythonBackendSettingsView: View {
 
     var body: some View {
         Form {
+            swiftBackendSection()
+
             switch status {
             case .none:
                 Section {
@@ -38,11 +48,27 @@ struct PythonBackendSettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .centeredSettingsPageTitle("python backend")
+        .centeredSettingsPageTitle("backend settings")
         .task { await recheck() }
     }
 
     // MARK: - sections
+
+    @ViewBuilder
+    private func swiftBackendSection() -> some View {
+        Section {
+            backendReadyCard(
+                title: "swift backend ready",
+                detailLines: [
+                    "bundled with app",
+                    "mlx-swift \(BundledSwiftBackendInfo.mlxSwiftVersion)",
+                    "mlx-swift revision \(BundledSwiftBackendInfo.mlxSwiftRevision)",
+                    "mlx-swift-lm \(BundledSwiftBackendInfo.mlxSwiftLMRef)",
+                    "mlx-swift-lm revision \(BundledSwiftBackendInfo.mlxSwiftLMRevision)"
+                ]
+            )
+        }
+    }
 
     @ViewBuilder
     private func readySection(path: String, version: String) -> some View {
@@ -50,27 +76,15 @@ struct PythonBackendSettingsView: View {
         let pythonOutdated = pythonVersion.map { PythonMLXBackend.isPythonOutdated($0) } ?? false
 
         Section {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                    .font(.title2)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("python backend ready").font(.headline)
-                    Text(path)
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    if let pv = pythonVersion {
-                        Text("python \(pv)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text("mlx_lm \(version)")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
+            backendReadyCard(
+                title: "python backend ready",
+                detailLines: [
+                    path,
+                    pythonVersion.map { "python \($0)" },
+                    "mlx_lm \(version)"
+                ].compactMap { $0 },
+                monospacedLineIndices: [0]
+            )
         }
 
         if pythonOutdated, let pv = pythonVersion {
@@ -228,6 +242,31 @@ struct PythonBackendSettingsView: View {
     }
 
     // MARK: - helpers
+
+    @ViewBuilder
+    private func backendReadyCard(
+        title: String,
+        detailLines: [String],
+        monospacedLineIndices: Set<Int> = []
+    ) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.title2)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.headline)
+                ForEach(Array(detailLines.enumerated()), id: \.offset) { index, line in
+                    Text(line)
+                        .font(monospacedLineIndices.contains(index)
+                              ? .system(.caption, design: .monospaced)
+                              : .caption)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                }
+            }
+            Spacer()
+        }
+    }
 
     @ViewBuilder
     private func commandRow(_ command: String) -> some View {

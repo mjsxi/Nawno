@@ -84,10 +84,10 @@ struct ModelsSettingsView: View {
 
             #if os(macOS)
             Section(header: Text("other")) {
-                NavigationLink("localhost settings…") {
+                NavigationLink("localhost settings") {
                     LocalhostSettingsView()
                 }
-                NavigationLink("python backend settings…") {
+                NavigationLink("backend settings") {
                     PythonBackendSettingsView()
                 }
             }
