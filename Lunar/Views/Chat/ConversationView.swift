@@ -119,18 +119,14 @@ struct MessageView: View {
                         if !collapsed {
                             if let streamedDisplay = streamedDisplay {
                                 if !streamedDisplay.committedThinkingMarkdown.isEmpty {
-                                    HStack(spacing: 12) {
-                                        Capsule()
-                                            .frame(width: 2)
-                                            .padding(.vertical, 1)
-                                            .foregroundStyle(.fill)
-                                        Markdown(streamedDisplay.committedThinkingMarkdown)
-                                            .textSelection(.enabled)
-                                            .markdownTextStyle {
-                                                ForegroundColor(.secondary)
-                                            }
-                                    }
-                                    .padding(.leading, 5)
+                                    SelectableMarkdownText(
+                                        segments: [
+                                            .init(
+                                                markdown: streamedDisplay.committedThinkingMarkdown,
+                                                role: .thinking
+                                            )
+                                        ]
+                                    )
                                 }
                             }
                         }
@@ -143,31 +139,22 @@ struct MessageView: View {
                             VStack(alignment: .leading, spacing: 12) {
                                 thinkingLabel
                                 if !collapsed {
-                                    if !thinking.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                        HStack(spacing: 12) {
-                                            Capsule()
-                                                .frame(width: 2)
-                                                .padding(.vertical, 1)
-                                                .foregroundStyle(.fill)
-                                            Markdown(thinking)
-                                                .textSelection(.enabled)
-                                                .markdownTextStyle {
-                                                    ForegroundColor(.secondary)
-                                                }
-                                        }
-                                        .padding(.leading, 5)
+                                    if let visibleContent = combinedVisibleAssistantContent(
+                                        thinking: thinking,
+                                        answer: afterThink
+                                    ) {
+                                        SelectableMarkdownText(segments: visibleContent)
                                     }
                                 }
                             }
-                            .contentShape(.rect)
-                            .onTapGesture {
-                                collapsed.toggle()
-                            }
                         }
 
-                        if let afterThink = afterThink {
-                            Markdown(afterThink)
-                                .textSelection(.enabled)
+                        if thinking == nil, let afterThink = afterThink {
+                            SelectableMarkdownText(
+                                segments: [
+                                    .init(markdown: afterThink, role: .assistant)
+                                ]
+                            )
                         }
                     }
                     .padding(.trailing, 48)
@@ -204,6 +191,27 @@ struct MessageView: View {
         return Color(NSColor.secondarySystemFill)
         #endif
     }()
+
+    private func combinedVisibleAssistantContent(
+        thinking: String,
+        answer: String?
+    ) -> [SelectableMarkdownText.Segment]? {
+        var segments: [SelectableMarkdownText.Segment] = []
+
+        let trimmedThinking = thinking.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedThinking.isEmpty {
+            segments.append(.init(markdown: trimmedThinking, role: .thinking))
+        }
+
+        if let answer {
+            let trimmedAnswer = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedAnswer.isEmpty {
+                segments.append(.init(markdown: trimmedAnswer, role: .assistant))
+            }
+        }
+
+        return segments.isEmpty ? nil : segments
+    }
 }
 
 struct ConversationView: View {
